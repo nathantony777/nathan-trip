@@ -1,6 +1,6 @@
 // 离线缓存（规格第九节）：第一次联网打开后，程序和香港数据都存在手机里，断网照样能用。
 // ★ 改了任何文件就把 VERSION 改一下，手机下次联网打开时换新版（旧缓存删掉）。
-const VERSION = 'v-20260923-1809';
+const VERSION = 'v-20260924-0100-data';
 const FILES = [
   './', 'index.html', 'app.js', 'worker.js', 'engine.js', 'transit.js', 'hours.js', 'parse.js', 'plan.js',
   '数据/hk.json', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png',
