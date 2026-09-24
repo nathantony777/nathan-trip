@@ -15,7 +15,8 @@ import { PRESETS, makeAI } from './ai.js';
 import { coordsFromText } from './maplinks.js';
 import { hm } from './engine.js';
 import { trailSVG } from './map.js';
-import { parseShare } from './collect.js';   // 收藏箱：把分享文字 / 收藏文件认成一条条店（规格 15.13）
+import { parseShare } from './collect.js';
+import * as FX from './fx.js';   // 动效（0924）：错落入场、按压回弹、数字滚动；弹层/提示条/换页仍走 index.html 里的 CSS 过场   // 收藏箱：把分享文字 / 收藏文件认成一条条店（规格 15.13）
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -591,7 +592,7 @@ function heroHTML(r) {
   const stops = plan && plan.ok ? planStops(plan) : 0;
   const todoPlaces = state.places.filter(p => p.status === 'todo').length;
   const eyebrow = [r.phase === 'now' ? '进行中' : r.phase === 'future' ? (r.from ? `${daysUntil(r.from)}` : '将来') : '过去', rn].join(' · ');
-  const stat = (v, k, unit) => `<div class="stat"><div class="v">${v}${unit ? `<small>${unit}</small>` : ''}</div><div class="k">${k}</div></div>`;
+  const stat = (v, k, unit) => `<div class="stat"><div class="v">${Number.isFinite(v) ? `<span data-count="${v}">${v}</span>` : v}${unit ? `<small>${unit}</small>` : ''}</div><div class="k">${k}</div></div>`;
   const stats = [stat(r.nDays || 0, '天数', '天'),
     R === 'hk' ? stat(stops, '要走的店', '站') : stat(todoPlaces, '要去的地方', '个'),
     stat(todoItems, R === 'hk' ? '还没买' : '要买的东西', '样')].join('');
@@ -639,7 +640,7 @@ function renderReview() {
   const visited = places.filter(p => p.status === 'done').length;
   const nStops = tr ? tr.days.reduce((n, d) => n + d.stops.length, 0) : 0;
   const mins = tr ? Math.round(tr.days.reduce((n, d) => n + (d.end && d.end.arrive != null && d.start ? d.end.arrive - d.start.time : 0), 0)) : 0;
-  const stat = (v, k, unit) => `<div class="stat"><div class="v">${v}${unit ? `<small>${unit}</small>` : ''}</div><div class="k">${k}</div></div>`;
+  const stat = (v, k, unit) => `<div class="stat"><div class="v">${Number.isFinite(v) ? `<span data-count="${v}">${v}</span>` : v}${unit ? `<small>${unit}</small>` : ''}</div><div class="k">${k}</div></div>`;
   out.push(`<div class="card"><div class="eyebrow">这趟怎么样</div><div class="stats" style="margin-top:10px">${[
     stat(nStops, '要走的店', '站'), stat(got, R === 'hk' ? '买到' : '买到 / 去过', '样'), stat(items.length ? todo : visited, items.length ? '还没买' : '去过的地方', items.length ? '样' : '个'),
   ].join('')}</div>
@@ -1691,12 +1692,14 @@ function render() {
   }
   const v = $('#view');
   // 换页淡入：只在页签真的变了才重加 .in（重排、改数据引起的同页重画不加，不然每次都闪）
-  if (tab !== lastTab) { lastTab = tab; v.classList.remove('in'); void v.offsetWidth; v.classList.add('in'); }
+  const pageChanged = tab !== lastTab;
+  if (pageChanged) { lastTab = tab; v.classList.remove('in'); void v.offsetWidth; v.classList.add('in'); }
   let html = tab === 'home' ? renderHome() : tab === 'review' ? renderReview() : tab === 'trip' ? renderTrip() : tab === 'places' ? renderPlaces() : tab === 'speech' ? renderSpeech() : renderSettings();
   // 重排要 1–3 秒：这段时间下面还是改之前的路线（刚导入时会显示「0 样 · 0 站」），不说清楚会以为没改上。
   // 按钮照样能点（在店里要连着标几样）。
   if (tab === 'trip' && planning && plan) html = `<div class="card warn">正在按刚才的改动重排，下面还是改之前的路线…</div><div class="stale">${html}</div>`;
   v.innerHTML = html;
+  if (pageChanged) FX.countUpAll(v);   // 大数字只在换页时滚一次；同页重画（改一样东西）不滚，不然每次都从 0 数
   const ps = $('#ai-preset');   // 换预设：把地址、模型名填成那家的（自己填地址时不动）
   if (ps) ps.onchange = () => { const x = PRESETS.find(p => p.id === ps.value); if (x) { $('#ai-base').value = x.base; $('#ai-model').value = x.model; } };
 }
@@ -1722,6 +1725,7 @@ async function boot() {
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
+FX.mountFx();   // 先装动效再 boot：boot 第一次 render 出来的卡片也要错落入场
 boot();
 // 收藏文件：选中就读、读完清掉 value（同一个文件再选一次也能触发）
 document.addEventListener('change', async e => {
