@@ -34,6 +34,7 @@
      ★ 透明度不低于 .72：底下是灰墙，正文对比度才不掉。深色下高光要压到 .08，不然像描了白边。 */
   --card-glass: rgba(252,253,254,.72); --wall-glass: rgba(237,239,241,.84);
   --hl: rgba(255,255,255,.65); --hl2: rgba(255,255,255,.35); --sheen: rgba(255,255,255,.45);
+  --blue-glass: rgba(10,182,228,.22); --blue-edge: rgba(10,182,228,.28);
   --toast-glass: rgba(34,38,43,.86);
 }
 @media (prefers-color-scheme: dark) {
@@ -46,6 +47,7 @@
     --e2: inset 0 1px 0 rgba(255,255,255,.06), 0 0 0 1px rgba(255,255,255,.08), 0 18px 44px rgba(0,0,0,.5);
     --card-glass: rgba(23,30,36,.72); --wall-glass: rgba(16,22,27,.84);
     --hl: rgba(255,255,255,.08); --hl2: rgba(255,255,255,.18); --sheen: rgba(255,255,255,.07);
+    --blue-glass: rgba(31,194,238,.20); --blue-edge: rgba(31,194,238,.30);
     --toast-glass: rgba(34,38,43,.88);
   }
 }
@@ -82,9 +84,13 @@ button, .btn {
   background: var(--card-glass); color: var(--ink); display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   text-decoration: none; cursor: pointer; box-shadow: inset 0 1px 0 var(--hl), var(--e1);
 }
+/* 主按钮：半透明磨砂的冰蓝玻璃，不是实心蓝（Nathan 0924 看了实心那版说「蓝色不够干净，要半透明磨砂质感，光效挺不错」）。
+   底是冰蓝薄雾 + 磨砂，上半截留一道高光，字用深冰蓝保证对比度；深色下把雾加浓一点、字换亮冰蓝。 */
 button.primary, .btn.primary {
-  background-color: var(--blue); background-image: linear-gradient(180deg, var(--hl2), rgba(255,255,255,0) 55%);
-  color: #fff; border-color: transparent; font-weight: 600; box-shadow: inset 0 1px 0 var(--hl2), var(--glow);
+  background-color: var(--blue-glass); background-image: linear-gradient(180deg, var(--hl), rgba(255,255,255,0) 55%);
+  -webkit-backdrop-filter: saturate(160%) blur(16px); backdrop-filter: saturate(160%) blur(16px);
+  color: var(--blue2); border-color: var(--blue-edge); font-weight: 600;
+  box-shadow: inset 0 1px 0 var(--hl), inset 0 -1px 0 rgba(10,182,228,.10), 0 4px 14px rgba(10,182,228,.16);
 }
 button.quiet { border-color: transparent; background: var(--mist); box-shadow: none; }
 button.danger { color: var(--bad-ink); }
