@@ -187,8 +187,8 @@ function toast(text, canUndo) {
 const region = () => Trip.regionOf(state);
 const providerName = () => Trip.REGIONS[region()].provider;     // null = 香港（内置数据）
 const hasKey = () => { const p = providerName(); return !!(p && keys[p]); };
-function makeProv() {
-  const p = providerName();
+function makeProv(p0) {
+  const p = p0 || providerName();
   if (!p) throw new Error('香港的行程用内置数据，不用联网');
   if (!keys[p]) throw new Error(`还没填${PROVIDER_NAME[p]}的钥匙（设置 → 联网）`);
   const spend = MX.makeSpender({ provider: p, cap: Number(root.settings.caps[p]) || 0, usage, save: saveUsage });
@@ -364,6 +364,12 @@ function legHTML(leg, copyText) {
   const btns = [];
   if (useAmap()) btns.push(`<button class="sm" data-act="openApp" data-app="${esc(L.amap)}" data-web="${esc(L.amapWeb || '')}">高德地图</button>`);
   else btns.push(`<button class="sm" data-act="openApp" data-app="${esc(L.google)}" data-web="${esc(L.googleWeb || '')}">谷歌地图</button>`);
+  // 打车：按这一趟去哪（不按网络）。滴滴：大陆 + 香港；Uber：香港 + 国外。
+  // ★ Uber 的链接能带目的地（坐标 + 名字），打开就是填好终点的下单页。
+  // ★ 滴滴没有对外公开的「带目的地打开」链接（要企业合作才有），所以按钮是【先把目的地复制好，再开滴滴】，进去粘贴一下。别猜参数（猜错只会留一串报错）。
+  const R = region();
+  if (R !== 'abroad') btns.push(`<button class="sm" data-act="openApp" data-app="diditaxi://" data-web="" data-copy="${esc(L.copyText || copyText)}">滴滴</button>`);
+  if (R !== 'cn' && L.uber) btns.push(`<button class="sm" data-act="openApp" data-app="${esc(L.uber)}" data-web="${esc(L.uberWeb || '')}">Uber</button>`);
   btns.push(`<button class="quiet sm" data-act="copy" data-text="${esc(L.copyText || copyText)}">复制地址</button>`);
   return `<div class="leg">${leg.mode === 'est' ? `<span class="flag">${esc(leg.text)}</span>` : esc(leg.text)}<div class="row">${btns.join('')}</div></div>`;
 }
@@ -572,6 +578,10 @@ function renderHome() {
   if (cur && state) out.push(heroHTML(cur));
   else out.push(`<div class="card hero"><div class="eyebrow">还没有出行</div><div class="title">说一句就能建一趟</div><div class="sub">比如「10月8日去深圳」「国庆去香港三天」</div>
     <button class="primary big" style="margin-top:16px" data-act="newTripSheet">新的一趟</button></div>`);
+  // 不建行程也能直接开地图（Nathan 0924：「假如我不建行程只是想看一下地图呢」）：光开 app，没装就开网页版
+  out.push(`<div class="card tight" style="padding:10px 12px"><div class="row"><span class="small muted" style="padding:0 4px">直接开</span>
+    <button class="sm grow" data-act="openApp" data-app="iosamap://" data-web="https://amap.com/">高德地图</button>
+    <button class="sm grow" data-act="openApp" data-app="comgooglemaps://" data-web="https://maps.google.com/">谷歌地图</button></div></div>`);
   const others = rows.filter(r => !r.current);
   const live = others.filter(r => r.phase !== 'past'), past = others.filter(r => r.phase === 'past');
   const PH = { now: '进行中', future: '将来', past: '过去' };
@@ -1063,11 +1073,22 @@ function pointOptions(cur, forEnd) {
   return o.join('');
 }
 
+// 没有当前趟时的钥匙块：一家一块，只有存 / 试 / 清（路程那些要有趟才有）。按钮带 data-prov，动作里按它取，不按这趟的地区
+function keyOnlyHTML(q) {
+  const masked = keys[q] ? `已存（末四位 ${esc(keys[q].slice(-4))}）` : '还没填';
+  return `<h2>联网（${PROVIDER_NAME[q]}）</h2><div class="card">
+    <label class="f">${PROVIDER_NAME[q]}的钥匙（只存在这台手机里，不进备份）：${masked}</label>
+    <div class="row"><input type="password" id="k-key-${q}" class="grow" autocomplete="off" placeholder="${keys[q] ? '粘贴新的可以替换' : '粘贴钥匙'}"><button data-act="keySave" data-prov="${q}">存</button></div>
+    <div class="row" style="margin-top:8px"><button data-act="keyTest" data-prov="${q}" ${keys[q] ? '' : 'disabled'}>试一下钥匙（算 1 次）</button>${keys[q] ? `<button class="quiet danger" data-act="keyClear" data-prov="${q}">清掉钥匙</button>` : ''}</div>
+    <p class="small muted">怎么开账号拿钥匙：看「给Nathan_开账号拿钥匙.md」。${q === 'amap' ? '高德要「Web 服务」那种 key。' : '谷歌要开 Places API (New) 和 Routes API。'}</p>
+  </div>`;
+}
 function renderSettings() {
-  const S = state.settings, R = region(), p = providerName();
-  const home = state.trip.home;
+  const S = state ? state.settings : null, R = region(), p = providerName();
+  const home = state ? state.trip.home : null;
   const out = [`<h1>设置</h1>`];
-  out.push(`<h2>行程</h2><div class="card">
+  if (!state) out.push(`<p class="small muted">还没建行程也能先把钥匙填好。行程、酒店、哪几天这些，建了一趟才有。</p>`);
+  if (state) out.push(`<h2>行程</h2><div class="card">
     <label class="f">这趟叫什么</label><input id="t-name" value="${esc(state.trip.name || '')}">
     <label class="f">去哪个地区（决定用哪家地图、哪套坐标）</label>
     <select id="t-region">${Object.entries(Trip.REGIONS).map(([k, v]) => `<option value="${k}" ${k === R ? 'selected' : ''}>${esc(v.name)}${k === 'hk' ? '（内置数据，不联网）' : `（联网用${PROVIDER_NAME[v.provider]}）`}</option>`).join('')}</select>
@@ -1087,7 +1108,8 @@ function renderSettings() {
     <label class="f">中秋当天饼家多算几分钟排队</label><input type="number" inputmode="numeric" id="s-queue" value="${S.bakeryQueue}">` : ''}
     <button class="primary big" style="margin-top:14px" data-act="saveSettings">保存并重排</button>
   </div>`);
-  if (p) {
+  if (!state) for (const q of ['amap', 'google']) out.push(keyOnlyHTML(q));   // 没有趟：两家的钥匙都能填、能试
+  if (state && p) {
     const st = MX.matrixStats(state, null);
     const cap = Number(root.settings.caps[p]) || 0;
     const masked = keys[p] ? `已存（末四位 ${esc(keys[p].slice(-4))}）` : '还没填';
@@ -1119,21 +1141,21 @@ function renderSettings() {
     <div class="row" style="margin-top:8px"><button data-act="aiTest" ${aiReady() ? '' : 'disabled'}>试一下（算 1 次）</button>${keys.ai ? '<button class="quiet danger" data-act="aiKeyClear">清掉钥匙</button>' : ''}</div>
     <p class="small muted">今天听了 ${usedToday('ai')} 次${aiCap ? `，上限 ${aiCap}` : ''}。发出去的只有框里的字、今天日期、这趟的地区 / 城市 / 哪几天；不发钥匙、不发坐标。怎么拿钥匙：看「给Nathan_开账号拿钥匙.md」。没填也能用：按规则听。</p>
   </div>`);
-  out.push(`<h2>这趟</h2><div class="card">
+  if (state) out.push(`<h2>这趟</h2><div class="card">
     <div class="row"><button class="grow" data-act="go" data-tab="home">回到「我的出行」</button><button class="danger" data-act="delTrip">删掉这趟</button></div>
     <p class="small muted">删掉这趟 = 它的行程、地方、清单、进度一起没了（8 秒内能撤销）。钥匙和 AI 设置是整个 app 的，不跟趟走。</p>
   </div>`);
   out.push(`<h2>备份（清单只存在这台手机里；不含钥匙）</h2>
   <div class="card">
-    <label class="f">这一趟</label>
-    <div class="row"><button class="grow" data-act="exportCopy">复制这趟的备份</button>${navigator.share ? '<button class="grow" data-act="exportShare">发到备忘录</button>' : ''}</div>
+    ${state ? `<label class="f">这一趟</label>
+    <div class="row"><button class="grow" data-act="exportCopy">复制这趟的备份</button>${navigator.share ? '<button class="grow" data-act="exportShare">发到备忘录</button>' : ''}</div>` : ''}
     <label class="f">全部出行（${Object.keys(root.trips).length} 趟 + 收藏箱 ${(root.inbox || []).length} 条，换手机用这个）</label>
     <div class="row"><button class="grow" data-act="exportAllCopy">复制全部的备份</button>${navigator.share ? '<button class="grow" data-act="exportAllShare">发到备忘录</button>' : ''}</div>
     <label class="f">恢复：把备份文字粘贴进来（一趟的、全部的都认）</label><textarea id="s-import" placeholder="Nathan出行备份 v2 … / Nathan出行全部备份 v3 …"></textarea>
     <button class="big" data-act="importBackup">恢复</button>
   </div>
-  <h2>全部清空</h2>
-  <div class="card"><button class="danger big" data-act="clearAll">清空这趟的地方、清单和进度</button></div>
+  ${state ? `<h2>全部清空</h2>
+  <div class="card"><button class="danger big" data-act="clearAll">清空这趟的地方、清单和进度</button></div>` : `<div class="row" style="margin-top:8px"><button class="grow" data-act="go" data-tab="home">回到「我的出行」</button></div>`}
   <p class="muted small">${R === 'hk' ? `香港数据 ${esc(data.version)} 版：${data.stores.length} 家店、港铁 ${stations.length} 个站、深圳湾过关巴士 ${data.border.buses.map(b => b.route).join(' ')}。查不到营业时间的店按 10:00–20:00 算，页面上会标「未核实」。` : '没联网取路程的两点之间按直线估，页面上标「估的」。'}时间都是估的，偏保守。</p>`);
   return out.join('');
 }
@@ -1189,10 +1211,10 @@ async function fetchRoutes() {
     if (r.note) alert(r.note);
   }
 }
-async function testKey() {
+async function testKey(p0) {
   let prov;
-  try { prov = makeProv(); } catch (e) { alert(e.message); return; }
-  const btn = $('[data-act=keyTest]'); if (btn) { btn.disabled = true; btn.textContent = '正在试…'; }
+  try { prov = makeProv(p0); } catch (e) { alert(e.message); return; }
+  const btn = $(`[data-act=keyTest]${p0 ? `[data-prov=${p0}]` : ''}`); if (btn) { btn.disabled = true; btn.textContent = '正在试…'; }
   try { const r = await prov.testKey(); alert(r.text); }
   catch (e) { alert(e.message); }
   finally { render(); }
@@ -1549,6 +1571,7 @@ document.addEventListener('click', async e => {
     }
     case 'openApp': {   // 先试 app 的链接，没装就开网页版
       const web = el.dataset.web;
+      if (el.dataset.copy) { try { await navigator.clipboard.writeText(el.dataset.copy); toast('目的地复制好了，进滴滴后粘贴到「你要去哪儿」', false); } catch {} }
       let left = false;
       const onHide = () => { left = true; };
       document.addEventListener('visibilitychange', onHide, { once: true });
@@ -1616,14 +1639,14 @@ document.addEventListener('click', async e => {
       break;
     }
     case 'keySave': {
-      const p = providerName(); const v = $('#k-key').value.trim();
+      const p = el.dataset.prov || providerName(); const inp = el.dataset.prov ? $('#k-key-' + p) : $('#k-key'); const v = inp.value.trim();
       if (!v) { alert('先粘贴钥匙'); break; }
-      keys[p] = v; $('#k-key').value = '';
+      keys[p] = v; inp.value = '';
       await saveKeys(); render(); toast('钥匙存在这台手机里了；点「试一下钥匙」验一次', false);
       break;
     }
-    case 'keyClear': { if (!confirm('清掉这把钥匙？')) break; keys[providerName()] = ''; await saveKeys(); render(); break; }
-    case 'keyTest': testKey(); break;
+    case 'keyClear': { if (!confirm('清掉这把钥匙？')) break; keys[el.dataset.prov || providerName()] = ''; await saveKeys(); render(); break; }
+    case 'keyTest': testKey(el.dataset.prov); break;
     case 'fetchRoutes': fetchRoutes(); break;
     case 'fetchCancel': if (fetching) fetching.abort.abort(); break;
     case 'matrixClear': if (confirm('清掉存好的路程？下次要重新联网取（算次数）。')) mutate(() => { state.matrix = {}; }, '清掉了，现在按直线估'); break;
@@ -1719,11 +1742,11 @@ async function aiTest() {
 // ---------------- 画 ----------------
 
 function render() {
-  if (!state && tab !== 'home') tab = 'home';            // 没有当前趟：只能看首页
+  if (!state && tab !== 'home' && tab !== 'settings') tab = 'home';   // 没有当前趟：只有首页和设置（钥匙、AI、备份不跟趟走；Nathan 0924）
   if (tab === 'review' && !state) tab = 'home';
   const navTab = tab === 'review' ? 'home' : tab;
   for (const b of document.querySelectorAll('#tabs button')) {
-    b.hidden = !state && b.dataset.tab !== 'home';
+    b.hidden = !state && !['home', 'settings'].includes(b.dataset.tab);
     if (b.dataset.tab === navTab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   }
   const v = $('#view');

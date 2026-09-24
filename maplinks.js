@@ -44,8 +44,11 @@ export function mapLinks(region, a, b, opts = {}) {
   const amapWeb = cn
     ? `https://uri.amap.com/navigation?from=${from}&to=${to}&mode=${near ? 'walk' : 'bus'}&src=nathan-trip`
     : `https://uri.amap.com/search?keyword=${destText ? enc(destText) : coordD}&src=nathan-trip`;
+  // Uber：打开就是填好终点的下单页（pickup=my_location 当前位置）。坐标要 WGS-84——大陆那趟是 GCJ-02，但 Uber 不在大陆运营，app.js 大陆不显示这个按钮
+  const uberQ = `action=setPickup&pickup=my_location&dropoff[latitude]=${f6(b.lat)}&dropoff[longitude]=${f6(b.lng)}&dropoff[nickname]=${enc(shortName || b.name || '')}${b.addr ? `&dropoff[formatted_address]=${enc(b.addr)}` : ''}`;
   return {
     near, apple, amap, amapWeb, copyText,
+    uber: `uber://?${uberQ}`, uberWeb: `https://m.uber.com/ul/?${uberQ}`,
     google: `comgooglemaps://?saddr=${s}&daddr=${d}&directionsmode=${near ? 'walking' : 'transit'}`,
     googleWeb: `https://www.google.com/maps/dir/?api=1&origin=${s}&destination=${d}&travelmode=${near ? 'walking' : 'transit'}`,
   };
