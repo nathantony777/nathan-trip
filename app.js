@@ -251,7 +251,7 @@ function renderTrip() {
     out.push(renderLeftovers());
     return out.join('');
   }
-  out.push(`<div class="row"><span class="time">${hm(dv.start.time)}</span><b>${esc(dv.start.name)}</b></div>`);
+  out.push(`<div class="timeline"><div class="tl-pt"><span class="time">${hm(dv.start.time)}</span><b>${esc(dv.start.name)}</b><span class="tag blue">出发</span></div>`);
   for (const s of dv.stops) {
     const addr = s.parts.map(p => p.addr || p.name).join('；');
     out.push(legHTML(s.leg, `${s.title} ${addr}`));
@@ -272,7 +272,7 @@ function renderTrip() {
     out.push(`</div>`);
   }
   out.push(legHTML(dv.back, dv.end.name));
-  out.push(`<div class="row"><span class="time">${hm(dv.end.arrive)}</span><b>${esc(dv.end.name)}</b><span class="muted small">（最晚 ${hm(dv.end.deadline)}）</span></div>`);
+  out.push(`<div class="tl-pt"><span class="time">${hm(dv.end.arrive)}</span><b>${esc(dv.end.name)}</b><span class="muted small">（最晚 ${hm(dv.end.deadline)}）</span></div></div>`);
   if (dv.preferredCost) out.push(`<div class="card small">${esc(dv.preferredCost.text)}。</div>`);
   out.push(renderLeftovers());
   out.push(`<p class="muted small">时间都是估的、偏保守${R !== 'hk' ? '；路程是按白天 10 点左右查的' : ''}${R === 'hk' ? '；「网上有货」不等于门市一定有' : ''}。${plan.elapsedMs != null ? `这次排了 ${plan.elapsedMs} 毫秒。` : ''}</p>`);
@@ -350,10 +350,12 @@ function renderPlaces() {
       ${hasKey() ? '<p class="small muted">按一次搜一次，每次算 1 次联网。</p>' : `<p class="small flag">要先填${PROVIDER_NAME[providerName()]}的钥匙：<button class="quiet" data-act="go" data-tab="settings" style="min-height:32px">去设置</button></p>`}
     </div>`);
   }
-  out.push(`<div class="row"><button class="grow" data-act="newPlace">${R === 'hk' ? '加一个地方' : '手动加一个（定位 / 贴链接）'}</button></div>`);
+  out.push(`<div class="row"><button class="grow" data-act="newPlace">${R === 'hk' ? '加一个地方（吃饭、取货、朋友家）' : '手动加一个（定位 / 贴链接）'}</button></div>`);
+  if (R === 'hk' && plan && plan.ok) out.push(renderRouteStops());
   const todo = state.places.filter(p => p.status === 'todo');
   const done = state.places.filter(p => p.status !== 'todo');
-  if (!state.places.length) out.push(`<p class="muted small">${R === 'hk' ? '吃饭、取货、朋友家这种数据里没有的地方，在这里加。' : '想去的景点、餐厅、店，搜一个加一个；哪天去可以指定，也可以让算法分。'}</p>`);
+  if (!state.places.length && R !== 'hk') out.push(`<p class="muted small">想去的景点、餐厅、店，搜一个加一个；哪天去可以指定，也可以让算法分。</p>`);
+  if (R === 'hk' && state.places.length) out.push('<h2>自己加的</h2>');
   for (const d of state.trip.days) {
     const ps = todo.filter(p => p.day === d.date);
     if (ps.length) out.push(`<h2>${esc(dayLabel(d.date))}（指定这天，${ps.length}）</h2><div class="card">${ps.map(placeRow).join('')}</div>`);
@@ -363,6 +365,26 @@ function renderPlaces() {
   const free = todo.filter(p => !p.day);
   if (free.length) out.push(`<h2>让算法分（${free.length}）</h2><div class="card">${free.map(placeRow).join('')}</div>`);
   if (done.length) out.push(`<h2>去过了 / 不去了（${done.length}）</h2><div class="card">${done.map(placeRow).join('')}</div>`);
+  return out.join('');
+}
+// 香港：路线上要走的店，按天、按顺序；点一站跳到行程页那天
+function renderRouteStops() {
+  const out = [];
+  let i = 0;
+  for (const dv of plan.days) {
+    if (!dv.stops || !dv.stops.length) continue;
+    const n = dv.stops.reduce((m, s) => m + s.parts.length, 0);
+    out.push(`<h2>${esc(dayLabel(dv.date))} 要走的（${n} 站）</h2><div class="card tight">`);
+    for (const s of dv.stops) for (const p of s.parts) {
+      i++;
+      const items = p.items.filter(it => !it.isPlace);
+      const meta = [esc(p.addr), p.hoursToday ? (p.isPlace ? '能去 ' : '营业 ') + esc(p.hoursToday) : '', items.length ? `买 ${items.length} 样` : ''].filter(Boolean).join(' · ');
+      out.push(`<div class="list-row"><span class="idx">${i}</span><div class="grow" data-act="dayGo" data-date="${dv.date}"><b>${esc(p.name)}</b> <span class="num small muted">${hm(p.begin)}–${hm(p.end)}</span>
+        <div class="muted small">${meta}</div>${items.length ? `<div class="small">${items.map(it => esc(it.name)).join('、')}</div>` : ''}</div></div>`);
+    }
+    out.push('</div>');
+  }
+  if (!i) out.push('<p class="muted small">路线上还没有店：到「说话」页粘贴清单，或者说一句想买什么。</p>');
   return out.join('');
 }
 function placeRow(p) {
@@ -412,25 +434,74 @@ function renderHome() {
   const rows = Trips.listTrips(root);
   const out = ['<h1>我的出行</h1>'];
   if (!storeOk) out.push(`<div class="card err">这台手机存不下来（可能是无痕模式）：关掉 app 会丢。</div>`);
-  out.push(`<div class="card">
-    <label class="f">新的一趟：说一句就行，比如「10月8日去深圳」「国庆去香港三天」；什么都不说就只选地区</label>
+  const cur = rows.find(r => r.current) || null;
+  if (cur && state) out.push(heroHTML(cur));
+  else out.push(`<div class="card hero"><div class="eyebrow">还没有出行</div><div class="title">说一句就能建一趟</div><div class="sub">比如「10月8日去深圳」「国庆去香港三天」</div>
+    <button class="primary big" style="margin-top:16px" data-act="newTripSheet">新的一趟</button></div>`);
+  const others = rows.filter(r => !r.current);
+  if (others.length) {
+    const PH = { now: '进行中', future: '将来', past: '过去' };
+    out.push(`<h2>其他出行（${others.length}）</h2><div class="card tight">`);
+    for (const r of others) {
+      out.push(`<div class="list-row"><div class="grow" data-act="openTrip" data-id="${esc(r.id)}"><b>${esc(r.name)}</b> <span class="tag">${esc(Trip.REGIONS[r.region].name)}</span><span class="tag">${PH[r.phase]}</span>
+        <div class="muted small">${esc(tripDates(r))} · ${esc(tripCounts(r))}</div></div>
+        <button data-act="openTrip" data-id="${esc(r.id)}">打开</button></div>`);
+    }
+    out.push('</div>');
+  }
+  if (cur && state) out.push(`<div class="row" style="margin-top:16px"><button class="grow" data-act="newTripSheet">＋ 新的一趟</button></div>`);
+  return out.join('');
+}
+const tripDates = r => !r.from ? '还没定日期' : r.from === r.to ? dayLabel(r.from) : `${dayLabel(r.from, false)}–${dayLabel(r.to, false)}（${r.nDays} 天）`;
+// 香港那趟的「地方」是数据里的店，不在 places 里——数「站」要看排出来的路线（只有当前这趟排了）；别的地区数 places
+function tripCounts(r) {
+  const bits = [];
+  if (r.region === 'hk') { const n = r.current && plan && plan.ok ? planStops(plan) : 0; if (n) bits.push(`${n} 站`); if (r.nItems) bits.push(`${r.nItems} 样东西`); }
+  else { bits.push(`${r.nPlaces} 个地方`); if (r.nItems) bits.push(`${r.nItems} 样东西`); }
+  return bits.join(' · ') || '还没安排';
+}
+const planStops = p => p.days.reduce((n, d) => n + (d.stops ? d.stops.reduce((m, s) => m + s.parts.length, 0) : 0), 0);
+function heroHTML(r) {
+  const R = region(), rn = Trip.REGIONS[R].name;
+  const today = Trip.localDateStr();
+  const ds = state.trip.days.map(d => d.date);
+  const focus = ds.includes(today) ? today : ds.find(d => d >= today) || ds[ds.length - 1] || null;   // 今天在行程里就看今天，否则看最近的那天
+  const dv = plan && plan.ok && focus ? plan.days.find(d => d.date === focus) : null;
+  const todoItems = state.items.filter(i => i.status === 'todo').length;
+  const stops = plan && plan.ok ? planStops(plan) : 0;
+  const todoPlaces = state.places.filter(p => p.status === 'todo').length;
+  const eyebrow = [r.phase === 'now' ? '进行中' : r.phase === 'future' ? (r.from ? `${daysUntil(r.from)}` : '将来') : '过去', rn].join(' · ');
+  const stat = (v, k, unit) => `<div class="stat"><div class="v">${v}${unit ? `<small>${unit}</small>` : ''}</div><div class="k">${k}</div></div>`;
+  const stats = [stat(r.nDays || 0, '天数', '天'),
+    R === 'hk' ? stat(stops, '要走的店', '站') : stat(todoPlaces, '要去的地方', '个'),
+    stat(todoItems, R === 'hk' ? '还没买' : '要买的东西', '样')].join('');
+  let next = '';
+  if (dv && !dv.cannotReturn && dv.stops.length) {
+    const parts = dv.stops.flatMap(s => s.parts);
+    const shown = parts.slice(0, 6);
+    next = `<div class="next"><div class="eyebrow">${esc(dayLabel(focus))}${focus === today ? ' · 今天' : ''}</div>
+      <div class="kv"><span class="k">出发</span><span class="v"><span class="num">${hm(dv.start.time)}</span> ${esc(dv.start.name)}</span></div>
+      <div class="kv"><span class="k">回到</span><span class="v"><span class="num">${hm(dv.end.arrive)}</span> ${esc(dv.end.name)}<span class="faint">（最晚 ${hm(dv.end.deadline)}）</span></span></div>
+      <ul class="mini">${shown.map(p => { const n = p.items.filter(it => !it.isPlace).length; return `<li><span class="num">${hm(p.begin)}</span><span class="n">${esc(p.name)}</span>${n ? `<span class="c">${n} 样</span>` : ''}</li>`; }).join('')}
+      ${parts.length > shown.length ? `<li><span class="num"></span><span class="n muted">还有 ${parts.length - shown.length} 站，在「行程」页</span></li>` : ''}</ul></div>`;
+  } else if (!state.items.length && !state.places.length) next = `<div class="next muted small">还没有想去的地方。到「说话」页说一句，或者在「地方」页加。</div>`;
+  else if (dv && dv.cannotReturn) next = `<div class="next"><div class="flag">${esc(dayLabel(focus))}这天回不去了，去「行程」页看</div></div>`;
+  else if (plan && !plan.ok) next = `<div class="next"><div class="flag">排不出来：${esc(plan.error)}</div></div>`;
+  return `<div class="card hero"><div class="eyebrow">${esc(eyebrow)}</div><div class="title">${esc(r.name)}</div><div class="sub">${esc(tripDates(r))}${state.trip.home ? ` · 住${esc(state.trip.home.name)}` : ''}</div>
+    <div class="stats">${stats}</div>${next}
+    <div class="row" style="margin-top:14px"><button class="primary grow" data-act="go" data-tab="trip">看行程</button><button class="grow" data-act="go" data-tab="speech">说一句</button></div></div>`;
+}
+function daysUntil(date) {
+  const n = Math.round((new Date(date + 'T00:00') - new Date(Trip.localDateStr() + 'T00:00')) / 864e5);
+  return n === 0 ? '今天' : n === 1 ? '明天' : n === 2 ? '后天' : n > 0 ? `${n} 天后` : '过去';
+}
+function newTripSheet() {
+  sheet(`<h2>新的一趟</h2>
+    <label class="f">说一句就行，比如「10月8日去深圳」「国庆去香港三天」；什么都不说就只选地区</label>
     <textarea id="nt-text" style="min-height:80px" placeholder="10月8日去深圳"></textarea>
     <label class="f">去哪个地区（句子里说了城市会自动判断）</label>
     <select id="nt-region">${Object.entries(Trip.REGIONS).map(([k, v]) => `<option value="${k}">${esc(v.name)}${k === 'hk' ? '（内置数据，不联网）' : `（联网用${PROVIDER_NAME[v.provider]}）`}</option>`).join('')}</select>
-    <button class="primary big" style="margin-top:10px" data-act="newTrip">建这趟</button>
-  </div>`);
-  if (!rows.length) out.push('<p class="muted small">还没有出行。</p>');
-  const PH = { now: '进行中', future: '将来', past: '过去' };
-  let last = null;
-  for (const r of rows) {
-    if (r.phase !== last) { if (last) out.push('</div>'); out.push(`<h2>${PH[r.phase]}（${rows.filter(x => x.phase === r.phase).length}）</h2><div class="card">`); last = r.phase; }
-    const dates = !r.from ? '还没定日期' : r.from === r.to ? dayLabel(r.from) : `${dayLabel(r.from, false)}–${dayLabel(r.to, false)}（${r.nDays} 天）`;
-    out.push(`<div class="list-row"><div class="grow" data-act="openTrip" data-id="${esc(r.id)}"><b>${esc(r.name)}</b> <span class="tag">${esc(Trip.REGIONS[r.region].name)}</span>${r.current ? '<span class="tag ok">刚才在看</span>' : ''}
-      <div class="muted small">${esc(dates)} · ${r.nPlaces} 个地方${r.nItems ? ` · ${r.nItems} 样东西` : ''}</div></div>
-      <button data-act="openTrip" data-id="${esc(r.id)}">打开</button></div>`);
-  }
-  if (last) out.push('</div>');
-  return out.join('');
+    <div class="row" style="margin-top:16px"><button class="primary grow" data-act="newTrip">建这趟</button><button class="quiet" data-act="closeSheet">关掉</button></div>`);
 }
 
 // 首页「建这趟」：句子先过规则层拿 名字 / 地区 / 城市 / 哪几天；有地方的话建完接着「听懂」（走完整流程，含 AI）
@@ -449,6 +520,7 @@ function newTripFromBox() {
   const hasMore = d && (d.days.some(x => x.entries.length) || d.unknown.length || (d.hkList || []).length);
   let made = null;
   if (!mutate(() => { made = Trips.newTrip(root, { region, name, city, days: dates }); }, `建了「${name || Trip.REGIONS[region].name}」${dates.length ? `，${dates.length} 天` : ''}`)) return;
+  closeSheet();
   tab = hasMore ? 'speech' : 'trip'; render(); window.scrollTo(0, 0);
   if (hasMore) listen(text);
   void made;
@@ -1304,6 +1376,8 @@ document.addEventListener('click', async e => {
     case 'clearAll': if (confirm('清空这趟的地方、清单和进度？（地区和钥匙留着；清完 8 秒内还能撤销）')) mutate(() => setCurrent(Trip.newState(region())), '全部清空了'); break;
     // ---- 出行的集合 / 说话 / AI（规格第十五节） ----
     case 'newTrip': newTripFromBox(); break;
+    case 'newTripSheet': newTripSheet(); break;
+    case 'dayGo': curDay = el.dataset.date; tab = 'trip'; render(); window.scrollTo(0, 0); break;
     case 'openTrip': if (mutate(() => Trips.switchTrip(root, id))) { tab = 'trip'; render(); window.scrollTo(0, 0); } break;
     case 'delTrip': {
       const name = state.trip.name || Trip.REGIONS[region()].name;
