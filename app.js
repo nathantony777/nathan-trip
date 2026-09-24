@@ -252,62 +252,64 @@ function renderTrip() {
   ensureCurDay();
   const out = [];
   const R = region();
-  if (!storeOk) out.push(`<div class="card err">这台手机存不下来（可能是无痕模式）：关掉 app 会丢。先去「设置」复制一份备份。</div>`);
+  if (!storeOk) out.push(`<div class="note err">这台手机存不下来（可能是无痕模式）：关掉 app 会丢。先去「设置」复制一份备份。</div>`);
   const tripName = state.trip.name || Trip.REGIONS[R].name;
   out.push(`<h1>${esc(tripName)}${tripName === Trip.REGIONS[R].name ? '' : ` <span class="tag">${esc(Trip.REGIONS[R].name)}</span>`}</h1>`);
-  out.push(`<div class="chips">${state.trip.days.map(d => `<button class="chip" data-act="pickDay" data-date="${d.date}" aria-pressed="${d.date === curDay}">${esc(dayLabel(d.date))}</button>`).join('')}<button class="chip quiet" data-act="go" data-tab="settings">＋ 加一天</button></div>`);
+  out.push(`<div class="chips seg lg">${state.trip.days.map(d => `<button class="chip" data-act="pickDay" data-date="${d.date}" aria-pressed="${d.date === curDay}">${esc(dayLabel(d.date))}</button>`).join('')}<button class="chip quiet" data-act="go" data-tab="settings">＋ 加一天</button></div>`);
   if (!state.items.length && !state.places.length) {
     out.push(`<div class="card"><p>还没有想去的地方。</p><div class="row"><button class="primary grow" data-act="go" data-tab="speech">说一句想去哪</button><button class="grow" data-act="go" data-tab="places">去「地方」页加</button></div></div>`);
     return out.join('');
   }
   if (!plan) { out.push('<p class="muted">正在排…</p>'); return out.join(''); }
-  if (!plan.ok) { out.push(`<div class="card err">排不出来：${esc(plan.error)}</div>`); return out.join(''); }
+  if (!plan.ok) { out.push(`<div class="note err">排不出来：${esc(plan.error)}</div>`); return out.join(''); }
   const dv = dayView();
   if (!dv) { out.push('<p class="muted">正在排这一天…</p>'); return out.join(''); }
-  for (const w of dv.warnings || []) out.push(`<div class="card warn">${esc(w)}</div>`);
+  for (const w of dv.warnings || []) out.push(`<div class="note">${esc(w)}</div>`);
 
   const nPlaces = dv.stops.reduce((n, s) => n + s.parts.filter(p => p.isPlace).length, 0);
   const nItems = dv.stops.reduce((n, s) => n + s.parts.reduce((m, p) => m + p.items.filter(i => !i.isPlace).length, 0), 0);
   const what = [nPlaces ? `${nPlaces} 个地方` : '', nItems ? `${nItems} 样东西` : ''].filter(Boolean).join(' · ') || '没有安排';
   const exactTag = plan.exact ? '<span class="tag ok">已是最顺的排法</span>' : `<span class="tag">排法够顺（${plan.method === 'heuristic' ? '几天之间怎么分是近似的' : '没试完所有排法'}）</span>`;
   out.push(`<div class="card summary">
-    <div class="big-line">${dv.cannotReturn ? '这天回不去了' : `${what} · 预计 ${hm(dv.end.arrive)} 回到${esc(dv.end.name)}`}</div>
+    <div class="title">${dv.cannotReturn ? '这天回不去了' : `${what} · 预计 ${hm(dv.end.arrive)} 回到${esc(dv.end.name)}`}</div>
     <div class="muted small">${esc(dayLabel(dv.date))} · 从${esc(dv.start.name)} ${hm(dv.start.time)} 出发 · 最晚 ${hm(dv.end.deadline)} 到 · ${exactTag}</div>
     ${dv.estimated ? `<div class="flag" style="margin-top:6px">有 ${dv.estimated} 段路程是估的${R !== 'hk' ? '（还没联网取）' : ''}</div>` : ''}
     <div class="row" style="margin-top:10px"><button class="primary grow" data-act="here" data-date="${dv.date}">从这里重排</button>
       ${R !== 'hk' && dv.estimated ? `<button class="grow" data-act="fetchRoutes">联网取路程</button>` : ''}
       <button class="quiet" data-act="go" data-tab="settings">改这天</button></div>
   </div>`);
-  if (dv.cannotReturn) { out.push(`<div class="card err">${esc(dv.text)}</div>`); out.push(renderLeftovers()); return out.join(''); }
+  if (dv.cannotReturn) { out.push(`<div class="note err">${esc(dv.text)}</div>`); out.push(renderLeftovers()); return out.join(''); }
 
   if (!dv.stops.length) {
     out.push(`<div class="card"><p>这天没有安排。</p><p class="muted small">想去的地方都排在别的天了，或者还没加。要指定某个地方这天去：在「地方」页点它 → 哪天去。</p></div>`);
     out.push(renderLeftovers());
     return out.join('');
   }
-  out.push(`<div class="timeline"><div class="tl-pt"><span class="time">${hm(dv.start.time)}</span><b>${esc(dv.start.name)}</b><span class="tag blue">出发</span></div>`);
+  // 时间轴（视觉 0924 第五版）：.tl 一根轨，出发 / 每站 / 回到 各一个 .tl-dot，时间只在轨旁（.time），站点卡挂在轨右侧；路段 .leg 是轨上安静的一段
+  out.push(`<div class="tl"><div class="tl-pt"><i class="tl-dot end"></i><span class="time">${hm(dv.start.time)}</span><b>${esc(dv.start.name)}</b><span class="tag blue">出发</span></div>`);
   for (const s of dv.stops) {
     const addr = s.parts.map(p => p.addr || p.name).join('；');
     out.push(legHTML(s.leg, `${s.title} ${addr}`));
-    out.push(`<div class="card stop">`);
+    out.push(`<div class="tl-stop"><div class="tl-head"><i class="tl-dot"></i><span class="time">${hm(s.arrive)}</span></div><div class="card stop">`);
     s.parts.forEach(p => {
+      const acts = [
+        p.phone ? `<a class="btn sm" href="tel:${esc(p.phone.replace(/[^\d+]/g, ''))}">打电话</a>` : '',
+        p.isPlace ? '' : `<button class="quiet danger sm" data-act="exclude" data-store="${esc(p.storeId)}">这家不去了</button>`,
+      ].filter(Boolean).join('');
       out.push(`<div class="part">
-        <div class="row"><span class="time">${hm(p.begin)}</span><div class="grow"><h3 style="margin:0">${esc(p.name)}</h3>
-          ${p.wait >= 3 ? `<div class="flag">${hm(p.arrive)} 到，等 ${p.wait} 分钟开门</div>` : ''}</div></div>
-        <div class="muted small">${[esc(p.addr), p.hoursToday ? (p.isPlace ? '能去的时间 ' : '当天营业 ') + esc(p.hoursToday) : '', `${hm(p.begin)}–${hm(p.end)} 在这儿`].filter(Boolean).join(' · ')}</div>
+        <h3>${esc(p.name)}</h3>
+        <div class="meta">${[esc(p.addr), p.hoursToday ? (p.isPlace ? '能去的时间 ' : '当天营业 ') + esc(p.hoursToday) : '', `${hm(p.begin)}–${hm(p.end)} 在这儿`].filter(Boolean).join(' · ')}</div>
+        ${p.wait >= 3 ? `<div class="flag">${hm(p.arrive)} 到，等 ${p.wait} 分钟开门</div>` : ''}
         ${p.flags.map(f => `<div class="flag">${esc(f)}</div>`).join('')}
         <div style="margin-top:6px">${p.items.map(it => itemRowToday(it, p)).join('')}</div>
-        <div class="row" style="margin-top:8px">
-          ${p.phone ? `<a class="btn" href="tel:${esc(p.phone.replace(/[^\d+]/g, ''))}">打电话</a>` : ''}
-          ${p.isPlace ? '' : `<button class="quiet danger" data-act="exclude" data-store="${esc(p.storeId)}">这家不去了</button>`}
-        </div>
+        ${acts ? `<div class="row acts-row">${acts}</div>` : ''}
       </div>`);
     });
-    out.push(`</div>`);
+    out.push(`</div></div>`);
   }
   out.push(legHTML(dv.back, dv.end.name));
-  out.push(`<div class="tl-pt"><span class="time">${hm(dv.end.arrive)}</span><b>${esc(dv.end.name)}</b><span class="muted small">（最晚 ${hm(dv.end.deadline)}）</span></div></div>`);
-  if (dv.preferredCost) out.push(`<div class="card small">${esc(dv.preferredCost.text)}。</div>`);
+  out.push(`<div class="tl-pt"><i class="tl-dot end"></i><span class="time">${hm(dv.end.arrive)}</span><b>${esc(dv.end.name)}</b><span class="muted small">（最晚 ${hm(dv.end.deadline)}）</span></div></div>`);
+  if (dv.preferredCost) out.push(`<div class="note">${esc(dv.preferredCost.text)}。</div>`);
   out.push(renderLeftovers());
   out.push(`<p class="muted small">时间都是估的、偏保守${R !== 'hk' ? '；路程是按白天 10 点左右查的' : ''}${R === 'hk' ? '；「网上有货」不等于门市一定有' : ''}。${plan.elapsedMs != null ? `这次排了 ${plan.elapsedMs} 毫秒。` : ''}</p>`);
   return out.join('');
@@ -358,9 +360,9 @@ const useAmap = () => googleReachable === null ? region() === 'cn' : !googleReac
 function legHTML(leg, copyText) {
   const L = leg.links || {};
   const btns = [];
-  if (useAmap()) btns.push(`<button class="primary" data-act="openApp" data-app="${esc(L.amap)}" data-web="${esc(L.amapWeb || '')}">高德地图</button>`);
-  else btns.push(`<button class="primary" data-act="openApp" data-app="${esc(L.google)}" data-web="${esc(L.googleWeb || '')}">谷歌地图</button>`);
-  btns.push(`<button class="quiet" data-act="copy" data-text="${esc(L.copyText || copyText)}">复制地址</button>`);
+  if (useAmap()) btns.push(`<button class="sm" data-act="openApp" data-app="${esc(L.amap)}" data-web="${esc(L.amapWeb || '')}">高德地图</button>`);
+  else btns.push(`<button class="sm" data-act="openApp" data-app="${esc(L.google)}" data-web="${esc(L.googleWeb || '')}">谷歌地图</button>`);
+  btns.push(`<button class="quiet sm" data-act="copy" data-text="${esc(L.copyText || copyText)}">复制地址</button>`);
   return `<div class="leg">${leg.mode === 'est' ? `<span class="flag">${esc(leg.text)}</span>` : esc(leg.text)}<div class="row">${btns.join('')}</div></div>`;
 }
 
@@ -382,7 +384,7 @@ function itemRowToday(it, part) {
   }
   return `<div class="item"><div class="grow" data-act="${it.isPlace ? 'editPlace' : 'edit'}" data-id="${esc(it.isPlace ? it.id.slice(6) : it.id)}">
       ${it.isPlace ? `<div class="muted small">${esc(meta || '点这里改')}</div>` : `<div class="name">${esc(it.name)}</div>${meta ? `<div class="muted small">${esc(meta)}</div>` : ''}`}</div>
-    <div class="acts">${acts}</div></div>`;
+    <div class="acts seg">${acts}</div></div>`;
 }
 
 // ---------------- 地方 ----------------
@@ -394,7 +396,7 @@ function renderPlaces() {
     out.push(`<div class="card">
       <label class="f">联网搜（${PROVIDER_NAME[providerName()]}）：名字、地址都行${state.trip.city ? `，在「${esc(state.trip.city)}」附近找` : ''}</label>
       <div class="row"><input id="q" class="grow" placeholder="比如：浅草寺、一兰拉面 新宿" ${hasKey() ? '' : 'disabled'}><button class="primary" data-act="search" ${hasKey() ? '' : 'disabled'}>搜</button></div>
-      ${hasKey() ? '<p class="small muted">按一次搜一次，每次算 1 次联网。</p>' : `<p class="small flag">要先填${PROVIDER_NAME[providerName()]}的钥匙：<button class="quiet" data-act="go" data-tab="settings" style="min-height:32px">去设置</button></p>`}
+      ${hasKey() ? '<p class="small muted">按一次搜一次，每次算 1 次联网。</p>' : `<p class="small flag">要先填${PROVIDER_NAME[providerName()]}的钥匙：<button class="quiet sm" data-act="go" data-tab="settings">去设置</button></p>`}
     </div>`);
   }
   out.push(`<div class="row"><button class="grow" data-act="newPlace">${R === 'hk' ? '加一个地方（吃饭、取货、朋友家）' : '手动加一个（定位 / 贴链接）'}</button></div>`);
@@ -563,7 +565,7 @@ function addHit(i) {
 function renderHome() {
   const rows = Trips.listTrips(root);
   const out = ['<h1>我的出行</h1>'];
-  if (!storeOk) out.push(`<div class="card err">这台手机存不下来（可能是无痕模式）：关掉 app 会丢。</div>`);
+  if (!storeOk) out.push(`<div class="note err">这台手机存不下来（可能是无痕模式）：关掉 app 会丢。</div>`);
   const cur = rows.find(r => r.current) || null;
   if (cur && state) out.push(heroHTML(cur));
   else out.push(`<div class="card hero"><div class="eyebrow">还没有出行</div><div class="title">说一句就能建一趟</div><div class="sub">比如「10月8日去深圳」「国庆去香港三天」</div>
@@ -574,10 +576,10 @@ function renderHome() {
   const row = r => `<div class="list-row"><div class="cover">${trailSVG(root.trips[r.id].trail, { w: 44, h: 44, mini: true, animate: false }) || '<span class="cover-empty"></span>'}</div>
       <div class="grow" data-act="openTrip" data-id="${esc(r.id)}"><b>${esc(r.name)}</b> <span class="tag">${esc(Trip.REGIONS[r.region].name)}</span><span class="tag">${PH[r.phase]}</span>
         <div class="muted small">${esc(tripDates(r))} · ${esc(tripCounts(r))}</div></div>
-      <button data-act="openTrip" data-id="${esc(r.id)}">${r.phase === 'past' ? '回顾' : '打开'}</button></div>`;
+      <button class="sm" data-act="openTrip" data-id="${esc(r.id)}">${r.phase === 'past' ? '回顾' : '打开'}</button></div>`;
   if (live.length) out.push(`<h2>其他出行（${live.length}）</h2><div class="card tight">${live.map(row).join('')}</div>`);
   if (past.length) {   // 过去的收着：存档在，不跟眼前这趟抢位置
-    out.push(`<h2 class="row" style="justify-content:space-between"><span>过去的出行（${past.length}）</span><button class="quiet" style="min-height:32px;font-size:13px" data-act="togglePast">${showPast ? '收起' : '展开'}</button></h2>`);
+    out.push(`<h2 class="row" style="justify-content:space-between"><span>过去的出行（${past.length}）</span><button class="quiet sm" data-act="togglePast">${showPast ? '收起' : '展开'}</button></h2>`);
     if (showPast) out.push(`<div class="card tight">${past.map(row).join('')}</div>`);
   }
   if (cur && state) out.push(`<div class="row" style="margin-top:16px"><button class="grow" data-act="newTripSheet">＋ 新的一趟</button></div>`);
@@ -636,11 +638,11 @@ function renderReview() {
   const R = region(), rn = Trip.REGIONS[R].name;
   const tr = trailWithStatus(state);
   const rows = Trips.listTrips(root); const r = rows.find(x => x.current) || { phase: 'future', from: null, to: null, nDays: state.trip.days.length, name: state.trip.name || rn };
-  const out = [`<div class="row" style="margin:4px 0 0"><button class="quiet" data-act="go" data-tab="home" style="min-height:36px;padding:0 12px">‹ 我的出行</button></div>`];
+  const out = [`<div class="row" style="margin:4px 0 0"><button class="quiet sm" data-act="go" data-tab="home">‹ 我的出行</button></div>`];
   out.push(`<div class="eyebrow" style="margin-top:12px">${r.phase === 'past' ? '回顾' : r.phase === 'now' ? '进行中' : '还没出发'} · ${esc(rn)}</div><h1 style="margin-top:2px">${esc(r.name)}</h1><div class="muted" style="margin:-6px 0 12px">${esc(tripDates(r))}${state.trip.home ? ` · 住${esc(state.trip.home.name)}` : ''}</div>`);
   const map = tr ? trailSVG(tr, { w: 343, h: 300, mtr: R === 'hk' ? data.mtr : null }) : '';
   if (map) out.push(`<div class="card map-card"><div class="map">${map}</div><div class="legend"><span><i class="sw port"></i>出发 / 回到</span><span><i class="sw stop"></i>要去的店</span><span><i class="sw got"></i>买到了</span>${R === 'hk' ? '<span><i class="sw base"></i>港铁</span>' : ''}</div></div>`);
-  else out.push('<div class="card muted small">还没有路线，所以没有轨迹。到「说话」页说一句，或者在「地方」页加。</div>');
+  else out.push('<div class="note">还没有路线，所以没有轨迹。到「说话」页说一句，或者在「地方」页加。</div>');
   // 这趟怎么样：数结果
   const items = state.items || [], places = state.places || [];
   const got = items.filter(i => ['bought', 'enough'].includes(i.status)).length;
@@ -738,11 +740,11 @@ function renderSpeech() {
     : ['10月8日去深圳，住福田', '明天上午去人才公园，然后去附近的免税店', '给同事带两盒特产'];
   out.push(`<div class="card">
     <div class="eyebrow">能说三类话 · 一句一件事</div>
-    <div class="kv"><span class="k">哪天去 / 去几天</span><span class="v">「10月8日去深圳」「国庆去香港三天」</span></div>
-    <div class="kv"><span class="k">去哪、先后顺序</span><span class="v">「上午去人才公园，然后去附近的免税店」</span></div>
-    <div class="kv"><span class="k">买什么、给谁</span><span class="v">「给同事带两盒特产」</span></div>
+    <div class="kv stack"><span class="k">哪天去 / 去几天</span><span class="v">「10月8日去深圳」「国庆去香港三天」</span></div>
+    <div class="kv stack"><span class="k">去哪、先后顺序</span><span class="v">「上午去人才公园，然后去附近的免税店」</span></div>
+    <div class="kv stack"><span class="k">买什么、给谁</span><span class="v">「给同事带两盒特产」</span></div>
     <label class="f" style="margin-top:12px">照着说，或者点一句例子填进去改：</label>
-    <div class="row" style="margin-bottom:8px">${EX.map(t => `<button class="quiet" style="min-height:32px;font-size:13px" data-act="spExample" data-text="${esc(t)}">${esc(t)}</button>`).join('')}</div>
+    <div class="row" style="margin-bottom:8px">${EX.map(t => `<button class="sm" data-act="spExample" data-text="${esc(t)}">${esc(t)}</button>`).join('')}</div>
     <textarea id="sp-text" placeholder="比如：${esc(EX[1])}">${esc(pendingDraft ? pendingDraft.text : '')}</textarea>
     <div class="row" style="margin-top:10px"><button class="primary grow" data-act="listen" ${listening ? 'disabled' : ''}>听懂</button>${R === 'hk' ? '<button data-act="paste">粘贴清单</button>' : ''}</div>
     <p class="small muted">按「听懂」→ 它把这段话拆成【哪天 / 去哪 / 买什么】列给你看 → 你点「对」才会加进行程，不对可以先改。${R === 'hk' ? '「粘贴清单」是把一整份采买清单（一行一样）贴进来。' : ''}</p>
@@ -828,7 +830,7 @@ function showDraft() {
   const nEntries = D.days.reduce((n, d) => n + d.entries.length, 0);
   const out = [`<h2>我听成这样（${nEntries} 个地方${D.unknown.length ? `，${D.unknown.length} 句没听懂` : ''}${pd.hkItems.length ? `，${pd.hkItems.length} 样要买的` : ''}）</h2><p class="small muted">${esc(pd.note)}。改好了点最下面「对，找地方并排进去」。</p>`];
   if (D.trip && (D.trip.city || D.trip.name || D.trip.region) && (D.trip.city && D.trip.city !== state.trip.city)) {
-    out.push(`<label class="row card" style="margin:8px 0"><input type="checkbox" id="dr-city"> 把这趟的城市改成「${esc(D.trip.city)}」（现在是「${esc(state.trip.city || '没定')}」）</label>`);
+    out.push(`<label class="row inset" style="margin:8px 0"><input type="checkbox" id="dr-city"> 把这趟的城市改成「${esc(D.trip.city)}」（现在是「${esc(state.trip.city || '没定')}」）</label>`);
   }
   D.days.forEach((d, di) => {
     const inTrip = !d.date || Trip.findDay(state, d.date);
@@ -1050,7 +1052,7 @@ function renderSettings() {
     <label class="f">酒店（每天默认从这出发、回这）</label>
     <div class="row"><span class="grow small">${home ? `${esc(home.name)}${home.addr ? ' · ' + esc(home.addr) : ''}` : '还没定'}</span><button data-act="homeSheet">${home ? '换' : '定酒店'}</button>${home ? '<button class="quiet danger" data-act="homeClear">清掉</button>' : ''}</div>
     <h3>哪几天</h3>
-    ${state.trip.days.map(d => `<div class="card day-card" data-day="${d.date}">
+    ${state.trip.days.map(d => `<div class="inset day-card" data-day="${d.date}">
       <div class="row"><input type="date" class="d-date grow" value="${d.date}"><button class="quiet danger" data-act="delDay" data-date="${d.date}" ${state.trip.days.length > 1 ? '' : 'disabled'}>删这天</button></div>
       <label class="f">从哪出发</label><select class="d-start">${pointOptions(d.start, false)}</select>
       <div class="row"><div class="grow"><label class="f">几点出发</label><input type="time" class="d-t0" value="${toHM(d.startTime)}"></div>
@@ -1076,7 +1078,7 @@ function renderSettings() {
       <h3>路程</h3>
       <p class="small muted">${st.points} 个点、${st.pairs} 段路：取到 ${st.have}、查过没路 ${st.noRoute}、还没取 ${st.missing}${st.near ? `，另有 ${st.near} 段很近按走路算` : ''}。${st.lastAt ? `上次取：${esc(new Date(st.lastAt).toLocaleString('zh-CN'))}` : ''}</p>
       <div id="fx-progress">${fetching ? `<div class="progress"><div style="width:${fetching.total ? Math.round(100 * fetching.done / fetching.total) : 0}%"></div></div><p class="small muted">取路程 ${fetching.done}/${fetching.total}…</p>` : ''}</div>
-      <div class="row"><button class="primary grow" data-act="fetchRoutes" ${fetching || !keys[p] ? 'disabled' : ''}>联网取路程（缺 ${st.missing} 段）</button>${fetching ? '<button data-act="fetchCancel">取消</button>' : ''}</div>
+      <div class="row"><button class="grow" data-act="fetchRoutes" ${fetching || !keys[p] ? 'disabled' : ''}>联网取路程（缺 ${st.missing} 段）</button>${fetching ? '<button data-act="fetchCancel">取消</button>' : ''}</div>
       <button class="quiet danger" style="margin-top:8px" data-act="matrixClear" ${Object.keys(state.matrix || {}).length ? '' : 'disabled'}>清掉存好的路程（重新取）</button>
     </div>`);
   }
@@ -1288,7 +1290,7 @@ function editPlace(id, pre) {
   sheet(`<h2>${isNew ? '加一个地方' : '改这个地方'}</h2>${fromInbox}
     <label class="f">叫什么</label><input id="p-name" value="${esc(p.name)}" placeholder="比如：吃午饭、朋友家取货">
     <label class="f">在哪${isNew ? '' : '（不改就留着）'}</label>
-    <div class="card" style="margin:0">
+    <div class="inset" style="margin:0">
       <button class="big" data-act="placeGPS">用我现在的位置</button>
       <label class="f">或者：${linkHint}</label><textarea id="p-link" style="min-height:70px" placeholder="${R === 'cn' ? 'https://surl.amap.com/… 不行；要 uri.amap.com/marker?position=经度,纬度 或 直接写 30.66,104.07' : 'https://www.google.com/maps/…@22.28,114.15…'}"></textarea>
       ${R === 'hk' ? `<label class="f">或者：在哪个港铁站附近</label>
@@ -1362,8 +1364,8 @@ let pendingParse = null;
 function parsePreview() {
   const text = $('#l-text').value;
   let bk = null;
-  try { bk = Trip.importBackup(text); } catch (e) { $('#l-preview').innerHTML = `<div class="card err">这像一份备份，但读不了：${esc(e.message)}</div>`; return; }
-  if (bk) { pendingParse = { backup: bk }; $('#l-preview').innerHTML = `<div class="card warn">这是一份备份：恢复会替换现在的全部清单。</div><button class="primary big" data-act="parseCommit">恢复这份备份</button>`; return; }
+  try { bk = Trip.importBackup(text); } catch (e) { $('#l-preview').innerHTML = `<div class="note err">这像一份备份，但读不了：${esc(e.message)}</div>`; return; }
+  if (bk) { pendingParse = { backup: bk }; $('#l-preview').innerHTML = `<div class="note">这是一份备份：恢复会替换现在的全部清单。</div><button class="primary big" data-act="parseCommit">恢复这份备份</button>`; return; }
   const r = parseList(text, data);
   const unknownItems = r.unknown.map(u => ({ id: u.id, name: u.name, qty: u.qty || 1, who: u.who || [], note: u.note || '', where: null, must: true, heavy: false, backupFor: null, status: 'todo', src: u.src, why: u.why }));
   pendingParse = { items: [...r.items, ...unknownItems] };
@@ -1708,7 +1710,7 @@ function render() {
   let html = tab === 'home' ? renderHome() : tab === 'review' ? renderReview() : tab === 'trip' ? renderTrip() : tab === 'places' ? renderPlaces() : tab === 'speech' ? renderSpeech() : renderSettings();
   // 重排要 1–3 秒：这段时间下面还是改之前的路线（刚导入时会显示「0 样 · 0 站」），不说清楚会以为没改上。
   // 按钮照样能点（在店里要连着标几样）。
-  if (tab === 'trip' && planning && plan) html = `<div class="card warn">正在按刚才的改动重排，下面还是改之前的路线…</div><div class="stale">${html}</div>`;
+  if (tab === 'trip' && planning && plan) html = `<div class="note">正在按刚才的改动重排，下面还是改之前的路线…</div><div class="stale">${html}</div>`;
   v.innerHTML = html;
   if (pageChanged) FX.countUpAll(v);   // 大数字只在换页时滚一次；同页重画（改一样东西）不滚，不然每次都从 0 数
   const ps = $('#ai-preset');   // 换预设：把地址、模型名填成那家的（自己填地址时不动）
@@ -1719,7 +1721,7 @@ async function boot() {
   try {
     data = await fetch('数据/hk.json').then(r => { if (!r.ok) throw new Error('香港数据没下载下来（第一次打开要联网）'); return r.json(); });
   } catch (e) {
-    $('#view').innerHTML = `<div class="card err">打不开：${esc(e.message)}</div>`;
+    $('#view').innerHTML = `<div class="note err">打不开：${esc(e.message)}</div>`;
     return;
   }
   stations = data.mtr.st.map(([code, name, lat, lng]) => ({ code, name, lat, lng })).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));

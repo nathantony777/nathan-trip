@@ -13,21 +13,21 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <title>出行</title>
 <style>
-/* 视觉 0924 第四版：浅色、有质感（Nathan 先说「没有质感啊，字体用系统字体，参考 Netflix 的质感」，看了暗色版后定「浅色但有质感」；研究见 设计/Netflix质感_研究.md）。
-   Netflix 的手法照搬到浅色上：墙是极浅冷灰渐变不是纯白平铺、卡比墙亮一档、层次靠明度和两层阴影不靠描边（描边只剩黑 6%）、
-   标题大而重（系统字体 700/800 + 负字距）、主按钮近黑底白字（「播放」键的反色）、次按钮黑 6%、冰蓝只做强调（选中页签 / 时间 / 序号 / 路线）。
-   ★ 变量名一个不改：map.js 的 SVG 靠 var(--blue)/var(--ink)/var(--card) 取色。新加的令牌都在「专有的几个」那段。
-   ★ 浅色是默认；暗色只在系统开了深色时给一套同结构的备用，能看就行。
-   ★ 手机上正文 15px、次要 13、eyebrow 11；数字保留等宽变体但用系统字体（--mono 这个名字留着，值已经不是 SF Mono）。
-   ★ 文字色的冰蓝用 --blue2（比 --blue 深，白底上对比度才够 4.5:1）；线和填充用 --blue。 */
+/* 视觉 0924 第五版：一套词汇（Nathan 看了第四版行程页说「整体美术风格割裂，重新做」——同一屏里黑药丸、灰药丸、蓝时间、绿徽章、红字、有卡的站点和没卡的路段拼在一起）。
+   词汇只有 10 个，见 设计/统一视觉语言_0924.md：页面标题 / 小标 / 卡片 / 提示 / 内嵌块 / 主按钮 / 浅灰按钮 / 文字按钮 / 分段控件 / 徽章。
+   颜色：动作墨黑，时间 / 轨道 / 底栏选中冰蓝，其余没有（红只剩 .danger 文字，暗红 70%；绿、金连变量一起删了）。
+   字号五档：30/800 · 17/700 · 15/400 · 13/400 · 12/500。输入框 16 是 iOS 的例外（小于 16 聚焦时会放大页面）。
+   ★ 变量名一个不改：map.js 的 SVG 靠 var(--blue)/var(--ink)/var(--card)/var(--pt) 取色。
+   ★ 光效（墙面光晕 / 噪点 / 卡片渐变边 / 主按钮流光 / hero 斜光 / 底栏柔光）和玻璃层全留；暗色兜底块同步改。
+   ★ fx.js 认 .card / .list-row / .leg 做入场、button / .btn / .list-row 做按压，这几个名字不动。 */
 :root {
   --wall0: #F5F6F8; --wall1: #E9ECEF; --card: #FDFDFE; --glass: rgba(255,255,255,.62);
   --ink: #111417; --ink2: rgba(17,20,23,.55); --ink3: rgba(17,20,23,.38);
   --line: rgba(17,20,23,.12); --line2: rgba(17,20,23,.06);
   --blue: #12B2E0; --blue2: #0A86AC; --blue-mist: rgba(18,178,224,.14);
-  --good: #17C964; --good-mist: rgba(23,201,100,.16); --good-ink: #128A47;
-  --bad: #FF4D42; --bad-mist: rgba(255,77,66,.13); --bad-ink: #C7362D;
-  --gold: #FFAB1A; --gold-mist: rgba(255,171,26,.18); --gold-ink: #9A6300;
+  --rail: rgba(18,178,224,.45);
+  --bad-ink: rgba(163,40,32,.72);
+  --tonal: #F1F2F4; --tonal2: #E7E9EC;
   --mist: rgba(17,20,23,.045); --mist2: rgba(17,20,23,.07);
   --e1: 0 1px 2px rgba(0,0,0,.06), 0 12px 32px rgba(0,0,0,.10);
   --e2: 0 -1px 0 rgba(0,0,0,.04), 0 -24px 60px rgba(0,0,0,.18);
@@ -64,9 +64,9 @@
     --ink: rgba(255,255,255,.92); --ink2: rgba(255,255,255,.60); --ink3: rgba(255,255,255,.40);
     --line: rgba(255,255,255,.12); --line2: rgba(255,255,255,.08);
     --blue: #2BC4EE; --blue2: #3FCBF0; --blue-mist: rgba(43,196,238,.16);
-    --good: #2FD374; --good-mist: rgba(47,211,116,.16); --good-ink: #4FE08A;
-    --bad: #FF5A50; --bad-mist: rgba(255,90,80,.16); --bad-ink: #FF8A82;
-    --gold: #FFB52E; --gold-mist: rgba(255,181,46,.16); --gold-ink: #FFC95E;
+    --rail: rgba(43,196,238,.5);
+    --bad-ink: rgba(255,128,118,.72);
+    --tonal: rgba(255,255,255,.07); --tonal2: rgba(255,255,255,.11);
     --mist: rgba(255,255,255,.06); --mist2: rgba(255,255,255,.10);
     --e1: 0 8px 24px rgba(0,0,0,.35);
     --e2: 0 -1px 0 rgba(255,255,255,.06), 0 -24px 60px rgba(0,0,0,.55);
@@ -95,7 +95,7 @@ html { background: var(--wall1); }
 body {
   margin: 0; color: var(--ink); min-height: 100vh;
   background: linear-gradient(180deg, var(--wall0) 0, var(--wall1) 420px) fixed;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif; font-size: 15px; line-height: 1.6;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif; font-size: 15px; line-height: 1.55;
   padding: env(safe-area-inset-top) 0 calc(var(--tab-h) + env(safe-area-inset-bottom));
   -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased;
   isolation: isolate;
@@ -114,31 +114,40 @@ body::after {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='180' height='180' filter='url(%23n)'/></svg>");
   background-size: 180px 180px;
 }
-main { max-width: 640px; margin: 0 auto; padding: 8px 16px 36px; }
+/* 宽屏（iPad / 桌面）：内容区、底栏、弹层都是 560 居中；手机上不变 */
+main { max-width: 560px; margin: 0 auto; padding: 8px 16px 36px; }
+/* ---- 字：五档 ---- */
 h1 { font-size: 30px; font-weight: 800; letter-spacing: -.02em; margin: 14px 0 14px; line-height: 1.15; }
-h1 .tag { vertical-align: middle; font-weight: 600; letter-spacing: 0; }
-h2 { font-size: 13px; font-weight: 700; color: var(--ink2); margin: 30px 0 8px; letter-spacing: .02em; }
-h3 { font-size: 17px; font-weight: 700; margin: 16px 0 6px; line-height: 1.3; letter-spacing: -.01em; }
+h1 .tag { vertical-align: middle; }
+h2, .eyebrow, label.f, .sheet h3 { font-size: 12px; font-weight: 500; letter-spacing: .02em; color: var(--ink2); line-height: 1.4; }
+h2 { margin: 28px 0 8px; }
+.eyebrow { display: block; }
+h3 { font-size: 17px; font-weight: 700; margin: 0 0 4px; line-height: 1.3; letter-spacing: -.01em; }
 p { margin: 8px 0; }
+b, strong { font-weight: 600; }
 .muted { color: var(--ink2); }
 .faint { color: var(--ink3); }
 .small { font-size: 13px; line-height: 1.5; }
-.eyebrow { font: 700 11px/1.4 var(--mono); letter-spacing: .12em; color: var(--ink3); text-transform: uppercase; }
 .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-/* 卡片边缘：border 是透明的，颜色来自第二层背景（border-box 那层渐变 --edge0→--edge1：顶上接近白、底下黑 13%），
-   第一层背景 padding-box 铺卡色盖住中间。这样边框是「上亮下暗」的一圈，比实线细腻。★ 谁覆盖 .card 的 background，都要照这个两层写法（.hero、.sheet .card）。 */
-.card { background: linear-gradient(var(--card), var(--card)) padding-box, linear-gradient(180deg, var(--edge0), var(--edge1)) border-box; border-radius: 18px; padding: 18px; margin: 14px 0; border: 1px solid transparent; box-shadow: inset 0 1px 0 var(--hl), var(--e1); }
+/* ---- 卡片：只有这一种。border 是透明的，颜色来自第二层背景（border-box 那层渐变 --edge0→--edge1：顶上接近白、底下黑 13%），
+   第一层背景 padding-box 铺卡色盖住中间。这样边框是「上亮下暗」的一圈，比实线细腻。★ 谁覆盖 .card 的 background，都要照这个两层写法（.hero）。 */
+.card { background: linear-gradient(var(--card), var(--card)) padding-box, linear-gradient(180deg, var(--edge0), var(--edge1)) border-box; border-radius: 18px; padding: 18px; margin: 12px 0; border: 1px solid transparent; box-shadow: inset 0 1px 0 var(--hl), var(--e1); }
 .card.tight { padding: 4px 18px; }
-.card.warn { border-left: 3px solid var(--gold); }
-.card.err { border-left: 3px solid var(--bad); }
-.card.warn, .card.err { color: var(--ink); }
+.card > h3:first-child, .card > .eyebrow:first-child { margin-top: 0; }
+/* ---- 内嵌块：卡里再分组用它（灰底、无影、无边）。三个数、设置里的「一天」、弹层里的「在哪」都是它。不许卡套卡。 ---- */
+.inset, .stat { background: var(--tonal); border-radius: 12px; padding: 12px 14px; }
+.inset { margin: 10px 0; }
+/* 提示（原来的金边 / 红边卡）：就是卡片，只是矮一点、字小一点——灰底在墙上看不见，会变成裸文字（0924 预览里试过） */
+.note { background: linear-gradient(var(--card), var(--card)) padding-box, linear-gradient(180deg, var(--edge0), var(--edge1)) border-box; border: 1px solid transparent; border-radius: 14px; box-shadow: inset 0 1px 0 var(--hl), var(--e1); padding: 12px 16px; margin: 12px 0; font-size: 13px; line-height: 1.5; color: var(--ink2); }
+.note.err { color: var(--ink); font-size: 15px; font-weight: 600; }
+.note .row { margin-top: 8px; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .grow { flex: 1 1 auto; min-width: 0; }
-/* 按钮：主按钮近黑底白字（Netflix「播放」键的反色），次按钮黑 6% 半透明、无描边；暗色下反过来白底黑字 / 白 10%。 */
+/* ---- 按钮：只有三种。默认 = 浅灰底墨字；.primary = 实心墨黑（每屏最多一个）；.quiet / .danger = 纯文字。.sm 小号（32 高、13 字）。 ---- */
 button, .btn {
-  font: inherit; font-size: 15px; font-weight: 600; min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid transparent;
-  background: var(--mist2); color: var(--ink); display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  text-decoration: none; cursor: pointer; box-shadow: none;
+  font: inherit; font-size: 15px; font-weight: 600; min-height: 44px; padding: 0 16px; border-radius: 12px; border: 0;
+  background: var(--tonal); color: var(--ink); display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  text-decoration: none; cursor: pointer; box-shadow: none; white-space: nowrap;
 }
 button.primary, .btn.primary {
   background: var(--primary-bg); color: var(--primary-ink); font-weight: 700;
@@ -152,71 +161,101 @@ button.primary::after, .btn.primary::after {
   background: linear-gradient(120deg, transparent 35%, var(--primary-sheen) 50%, transparent 65%);
   transform: translateX(-100%);
 }
-button.quiet { border-color: transparent; background: var(--mist); box-shadow: none; }
+/* 直接放在墙上的浅灰按钮（不在卡片里：「加一个地方」「＋ 新的一趟」「看已处理的」那种）：灰底和墙同色会看不见，改成白底 + 发丝线 + 一层薄影。卡片里的照旧灰底。 */
+#view > .row > button:not(.primary):not(.quiet):not(.danger), #view > .stale > .row > button:not(.primary):not(.quiet):not(.danger), #view > button:not(.primary):not(.quiet):not(.danger),
+.inset button:not(.primary):not(.quiet):not(.danger) { background: var(--card); box-shadow: inset 0 0 0 1px var(--line2), 0 1px 2px rgba(0,0,0,.05); }
+/* 灰底内嵌块里的输入框也一样：灰上灰看不见，用白底 */
+.inset input, .inset select, .inset textarea { background: var(--card); }
+button.quiet, button.danger { background: transparent; color: var(--ink2); padding: 0 10px; }
 button.danger { color: var(--bad-ink); }
 button:disabled { opacity: .4; box-shadow: none; }
-.big { width: 100%; min-height: 50px; font-size: 16px; }
-.tag { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; line-height: 1.3; padding: 2px 8px; border-radius: 999px; background: var(--mist2); color: var(--ink2); margin-right: 4px; white-space: nowrap; vertical-align: 1px; }
-.tag.ok { background: var(--good-mist); color: var(--good-ink); }
-.tag.warn { background: var(--gold-mist); color: var(--gold-ink); }
-.tag.bad { background: var(--bad-mist); color: var(--bad-ink); }
-.tag.ok::before, .tag.warn::before, .tag.bad::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
-.tag.blue { background: var(--blue-mist); color: var(--blue2); }
-.time { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 700; font-size: 15px; min-width: 3.4em; color: var(--blue2); }
-.flag { color: var(--ink2); font-size: 13px; line-height: 1.5; padding-left: 12px; position: relative; }
-.flag::before { content: ""; position: absolute; left: 0; top: .55em; width: 6px; height: 6px; border-radius: 999px; background: var(--gold); }
-/* 路线：一条竖线把出发、每站、回程串起来 */
-.timeline { margin: 8px 0 0; }
-.tl-pt { display: flex; gap: 10px; align-items: center; padding: 6px 0; }
-.tl-pt b { font-size: 15px; font-weight: 700; }
-.leg { margin: 0 0 0 17px; padding: 6px 0 6px 20px; border-left: 1px solid var(--line); color: var(--ink2); font-size: 13px; line-height: 1.5; }
-.leg .row { margin-top: 6px; }
-.leg button, .leg .btn { min-height: 34px; font-size: 12px; padding: 0 12px; box-shadow: none; }
-.card.stop { margin: 4px 0; }
-.stop h3 { margin: 0; font-size: 17px; }
+.big { width: 100%; min-height: 48px; }
+button.sm, .btn.sm { min-height: 32px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
+button.quiet.sm, button.danger.sm { padding: 0 8px; }
+a { color: var(--blue2); }
+/* ---- 分段控件：一个圆角矩形，灰底，段与段之间 1px 发丝线；选中段白底带一圈线。.lg 大号 = 日期条。
+   里面每一段都是 button（fx.js 的按压照旧），段里不认 .quiet / .danger / .primary 的样子——一眼是一个控件不是四颗糖。 ---- */
+.seg { display: inline-flex; align-items: stretch; background: var(--tonal); border-radius: 10px; padding: 0; overflow: hidden; }
+.seg > button, .seg > .btn { min-height: 32px; padding: 0 11px; font-size: 13px; font-weight: 600; border-radius: 0; background: transparent; color: var(--ink); box-shadow: none; flex: 0 0 auto; border-left: 1px solid var(--line); }
+.seg > button:first-child, .seg > .btn:first-child { border-left: 0; }
+.seg > button[aria-pressed=true] { background: var(--card); box-shadow: inset 0 0 0 1px var(--line), 0 1px 2px rgba(0,0,0,.06); border-radius: 8px; margin: 2px; border-left: 0; }
+.seg > button[aria-pressed=true] + button { border-left: 0; }
+.seg.lg { border-radius: 12px; }
+.seg.lg > button { min-height: 38px; font-size: 14px; padding: 0 14px; }
+.seg.lg > button[aria-pressed=true] { border-radius: 10px; }
+.seg.lg > button.quiet { color: var(--ink2); }
+/* 日期条：分段控件的大号版，横向可滚；不在 main 的内边距里（贴边滚） */
+.chips { display: flex; overflow-x: auto; margin: 0 0 4px; -webkit-overflow-scrolling: touch; scrollbar-width: none; max-width: 100%; width: fit-content; }
+.chips::-webkit-scrollbar { display: none; }
+/* ---- 徽章：只有灰、蓝两种（原 ok 归蓝，warn / bad 归灰）---- */
+.tag { display: inline-flex; align-items: center; font-size: 12px; font-weight: 500; letter-spacing: .02em; line-height: 1.3; padding: 2px 7px; border-radius: 6px; background: var(--tonal2); color: var(--ink2); margin-right: 4px; white-space: nowrap; vertical-align: 1px; }
+.tag.ok, .tag.blue { background: var(--blue-mist); color: var(--blue2); }
+/* 轨道旁的时间：12/500 冰蓝，等宽数字。整套界面里蓝色的字只有它和底栏选中项。 */
+.time { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 500; font-size: 12px; letter-spacing: .02em; color: var(--blue2); }
+/* 要留意的一句（估的 / 等开门 / 未核实）：灰点 + 13 字 */
+.flag { color: var(--ink2); font-size: 13px; line-height: 1.5; padding-left: 12px; position: relative; display: block; }
+.flag::before { content: ""; position: absolute; left: 0; top: .6em; width: 5px; height: 5px; border-radius: 999px; background: var(--ink3); }
+/* ---- 行程页的时间轴：整天一根 2px 冰蓝竖轨（页面 x≈28），出发 / 每站 / 回到 在轨上各一个圆点，时间是轨旁的小字，站点卡和路段都挂在轨右侧。 ---- */
+.tl { position: relative; padding-left: 30px; margin: 8px 0 0; }
+.tl::before { content: ""; position: absolute; left: 11px; top: 12px; bottom: 12px; width: 2px; border-radius: 1px; background: var(--rail); }
+.tl-dot { position: absolute; left: -24px; top: 7px; width: 10px; height: 10px; border-radius: 999px; background: var(--card); border: 2px solid var(--blue); box-sizing: border-box; }
+.tl-dot.end { background: var(--blue); }
+.tl-pt, .tl-stop { position: relative; }
+.tl-pt { display: flex; gap: 8px; align-items: center; min-height: 24px; padding: 0; line-height: 24px; }
+.tl-pt b { font-size: 15px; font-weight: 600; }
+.tl-stop .tl-head { display: flex; align-items: center; min-height: 24px; line-height: 24px; }
+.tl-stop .card.stop { margin: 4px 0 0; }
+.leg { padding: 10px 0; color: var(--ink2); font-size: 13px; line-height: 1.5; }
+.leg .row { margin-top: 6px; gap: 4px; }
 .part + .part { border-top: 1px solid var(--line2); margin-top: 14px; padding-top: 14px; }
-.item { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line2); }
+.part .meta { color: var(--ink2); font-size: 13px; line-height: 1.5; }
+.part .acts-row { margin-top: 10px; gap: 4px; }
+/* 一样东西一行：名字 + 备注在左，右边是一组分段控件；窄屏放不下就整组换到下一行靠右 */
+.item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 0; border-top: 1px solid var(--line2); }
 .item > .grow { min-width: 40%; }
-.item .acts { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; }
+.item .acts { margin-left: auto; flex-shrink: 0; }
 .item:first-of-type { border-top: 0; }
 .item .name { font-weight: 600; }
-.item .acts button { min-height: 36px; padding: 0 12px; font-size: 12px; box-shadow: none; }
-.summary .big-line { font-size: 18px; font-weight: 700; line-height: 1.35; letter-spacing: -.01em; }
+/* 概要卡 / 清单行 */
+.summary .title { font-size: 17px; font-weight: 700; line-height: 1.35; letter-spacing: -.01em; }
 .list-row { display: flex; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line2); }
 .list-row:first-child { border-top: 0; }
 .list-row .grow { cursor: pointer; }
-.list-row b { font-weight: 700; }
+.list-row b { font-weight: 600; }
 /* 一行右边的按钮组：手机上窄，按钮字不许竖排（0924 收藏箱样张里「加到这趟」竖成了四行） */
-.list-row .acts { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
-.list-row .acts button, .list-row > button { white-space: nowrap; min-height: 36px; padding: 6px 12px; font-size: 14px; }
-.list-row .idx { font: 700 12.5px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--blue2); background: var(--blue-mist); width: 28px; height: 28px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.list-row button { min-height: 36px; padding: 0 14px; font-size: 13px; box-shadow: none; }
-label.f { display: block; margin: 14px 0 6px; font-size: 13px; color: var(--ink2); }
+.list-row .acts { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; align-items: stretch; }
+.list-row .acts button, .list-row > button { min-height: 32px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
+.list-row .idx { font: 500 12px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--blue2); background: var(--blue-mist); width: 26px; height: 26px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+label.f { display: block; margin: 14px 0 6px; }
 input, select, textarea {
   font: inherit; font-size: 16px; width: 100%; min-height: 44px; padding: 8px 12px; border-radius: 12px;
-  border: 1px solid var(--line); background: var(--mist); color: var(--ink); box-shadow: none; -webkit-appearance: none; appearance: none;
+  border: 1px solid var(--line2); background: var(--tonal); color: var(--ink); box-shadow: none; -webkit-appearance: none; appearance: none;
 }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-mist); }
 textarea { min-height: 140px; line-height: 1.55; }
 select[multiple] { min-height: 120px; }
 input[type=checkbox] { width: 22px; min-height: 22px; height: 22px; -webkit-appearance: checkbox; appearance: checkbox; }
-/* 底栏：白色磨砂玻璃 + 上边缘 1px 半透明白描边 + 内侧高光线 + 外侧黑 6% 发丝线（把它跟墙分开）；选中页签冰蓝，小圆点带一圈 12px 柔光 */
+/* ---- 底栏：白色磨砂玻璃 + 上边缘 1px 半透明白描边 + 内侧高光线 + 外侧黑 6% 发丝线；选中页签冰蓝，小圆点带一圈 12px 柔光，药丸只包住文字（span），不拉伸。宽屏 560 居中。 ---- */
 nav.tabs {
-  position: fixed; left: 0; right: 0; bottom: 0; height: calc(var(--tab-h) + env(safe-area-inset-bottom));
+  position: fixed; left: 0; right: 0; bottom: 0; height: calc(var(--tab-h) + env(safe-area-inset-bottom)); max-width: 560px; margin: 0 auto;
   padding-bottom: env(safe-area-inset-bottom); display: flex; background: var(--wall-glass); border-top: 1px solid var(--glass-edge); z-index: 10;
   box-shadow: 0 -1px 0 var(--line2), inset 0 1px 0 var(--hl2), var(--e4);
   -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
 }
-nav.tabs button { flex: 1; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--ink3); font-size: 12px; font-weight: 600; min-height: var(--tab-h); flex-direction: column; gap: 5px; padding: 0; position: relative; isolation: isolate; }
-/* 选中页签背后一块淡蓝玻璃药丸，z-index -1 靠 isolation 关在按钮里 */
-nav.tabs button[aria-current=page]::after { content: ""; position: absolute; inset: 8px 6px; border-radius: 14px; background: var(--blue-mist); box-shadow: inset 0 1px 0 var(--hl); z-index: -1; }
-nav.tabs button::before { content: ""; width: 7px; height: 7px; border-radius: 999px; background: var(--line); transition: background .18s, box-shadow .18s; }
-nav.tabs button[aria-current=page] { color: var(--blue2); font-weight: 700; }
+nav.tabs button { flex: 1; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--ink3); font-size: 12px; font-weight: 500; letter-spacing: .02em; min-height: var(--tab-h); flex-direction: column; gap: 4px; padding: 0; }
+nav.tabs button span { display: inline-block; padding: 2px 10px; border-radius: 999px; line-height: 1.4; }
+nav.tabs button::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: var(--line); transition: background .18s, box-shadow .18s; }
+nav.tabs button[aria-current=page] { color: var(--blue2); font-weight: 600; }
+nav.tabs button[aria-current=page] span { background: var(--blue-mist); box-shadow: inset 0 1px 0 var(--hl); }
 nav.tabs button[aria-current=page]::before { background: var(--blue); box-shadow: var(--glow); }
 nav.tabs button:active { transform: none; }
+@media (min-width: 600px) {
+  nav.tabs { border-radius: 18px 18px 0 0; border-left: 1px solid var(--glass-edge); border-right: 1px solid var(--glass-edge); }
+}
+/* ---- 弹层：磨砂玻璃，宽屏 560 居中 ---- */
 .sheet-bg { position: fixed; inset: 0; background: var(--scrim); z-index: 20; }
 .sheet {
-  position: fixed; left: 0; right: 0; bottom: 0; max-height: 92vh; overflow: auto; background: var(--wall-glass); z-index: 21;
+  position: fixed; left: 0; right: 0; bottom: 0; max-height: 92vh; overflow: auto; background: var(--wall-glass); z-index: 21; max-width: 560px; margin: 0 auto;
   border-radius: 24px 24px 0 0; padding: 12px 16px calc(24px + env(safe-area-inset-bottom)); box-shadow: inset 0 1px 0 var(--hl), var(--e2);
   border: 1px solid var(--glass-edge); border-bottom: 0;
   -webkit-backdrop-filter: saturate(180%) blur(24px); backdrop-filter: saturate(180%) blur(24px);
@@ -224,17 +263,17 @@ nav.tabs button:active { transform: none; }
 /* 关闭中：closeSheet() 先加 .closing、200ms 后才清 DOM；期间不许再点到里面 */
 #sheet-root.closing { pointer-events: none; }
 .sheet::before { content: ""; display: block; width: 36px; height: 4px; border-radius: 999px; background: var(--line); margin: 0 auto 12px; }
-.sheet .inner { max-width: 640px; margin: 0 auto; }
-.sheet h2 { margin: 4px 0 8px; color: var(--ink); font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
-.sheet h3 { font-size: 13px; color: var(--ink2); margin: 20px 0 6px; }
-.sheet .card { background: linear-gradient(var(--card-glass), var(--card-glass)) padding-box, linear-gradient(180deg, var(--edge0), var(--edge1)) border-box; }
+.sheet .inner { max-width: 560px; margin: 0 auto; }
+.sheet h2 { margin: 4px 0 8px; color: var(--ink); font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+.sheet h3 { margin: 20px 0 6px; }
+.sheet .card { margin: 8px 0; }
 .toast {
   position: fixed; left: 16px; right: 16px; bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 12px); z-index: 30;
-  max-width: 600px; margin: 0 auto; background: var(--toast-glass); color: #F2F4F6; border-radius: 16px; padding: 10px 10px 10px 16px;
-  display: flex; align-items: center; gap: 10px; box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 12px 32px rgba(0,0,0,.5); font-size: 14px; border: 1px solid var(--toast-edge);
+  max-width: 528px; margin: 0 auto; background: var(--toast-glass); color: #F2F4F6; border-radius: 16px; padding: 10px 10px 10px 16px;
+  display: flex; align-items: center; gap: 10px; box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 12px 32px rgba(0,0,0,.5); font-size: 13px; border: 1px solid var(--toast-edge);
   -webkit-backdrop-filter: saturate(180%) blur(16px); backdrop-filter: saturate(180%) blur(16px);
 }
-.toast button { background: rgba(255,255,255,.12); color: #fff; border-color: transparent; min-height: 36px; box-shadow: none; }
+.toast button { background: rgba(255,255,255,.12); color: #fff; min-height: 32px; font-size: 13px; border-radius: 10px; box-shadow: none; }
 .stale { opacity: .45; }
 .busy { position: fixed; top: calc(env(safe-area-inset-top) + 10px); right: 12px; z-index: 15; }
 /* 动效：全部只在系统没开「减少动态效果」时生效。曲线 .32,.72,0,1 是 iOS 弹层那种快出慢停；按钮松手用过冲曲线回弹。 */
@@ -244,7 +283,7 @@ nav.tabs button:active { transform: none; }
   button.primary:active::after, .btn.primary:active::after { transform: translateX(100%); transition: transform .6s ease; }
   @media (hover: hover) { button.primary:hover::after, .btn.primary:hover::after { transform: translateX(100%); transition: transform .6s ease; } }
   nav.tabs button:active { transform: none; }
-  nav.tabs button[aria-current=page]::after { animation: pill-in .25s cubic-bezier(.32,.72,0,1); }
+  nav.tabs button[aria-current=page] span { animation: pill-in .25s cubic-bezier(.32,.72,0,1); }
   @keyframes pill-in { from { opacity: 0; transform: scale(.85); } }
   .sheet { animation: sheet-up .32s cubic-bezier(.32,.72,0,1); }
   .sheet-bg { animation: fade-in .25s ease-out; }
@@ -267,50 +306,48 @@ nav.tabs button:active { transform: none; }
     animation: sheen 10s linear infinite; }
   @keyframes sheen { from { background-position: 120% 0; } to { background-position: -130% 0; } }
 }
-.chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 16px 8px; margin: 0 -16px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-.chips::-webkit-scrollbar { display: none; }
-.chip { flex: 0 0 auto; min-height: 38px; padding: 0 14px; white-space: nowrap; font-size: 14px; }
-.chip[aria-pressed=true] { background: var(--primary-bg); color: var(--primary-ink); border-color: transparent; font-weight: 700; box-shadow: none; }
-.progress { height: 6px; background: var(--mist2); border-radius: 999px; overflow: hidden; margin: 8px 0; }
+.progress { height: 6px; background: var(--tonal2); border-radius: 999px; overflow: hidden; margin: 8px 0; }
 .progress > div { height: 100%; background: var(--blue); transition: width .2s; }
-.day-card { padding: 12px; }
 .day-card label.f { margin-top: 8px; }
 .row > input.grow, .row > select.grow { width: auto; flex: 1 1 9em; }
 .row > input.de-dur { width: 6em; }
 /* 首页：当前这趟的大卡 + 三个数。大卡是从上到下很淡的冷灰渐变 + 顶部 1px 白高光 + 深一点的外阴影，海报那种「浮起来」 */
-.hero { padding: 20px 18px 18px; position: relative; overflow: hidden; isolation: isolate; background: linear-gradient(180deg, var(--hero0), var(--hero1)) padding-box, linear-gradient(180deg, var(--edge0), var(--edge1)) border-box; box-shadow: inset 0 1px 0 var(--hl), var(--e3); }
+.hero { padding: 18px; position: relative; overflow: hidden; isolation: isolate; background: linear-gradient(180deg, var(--hero0), var(--hero1)) padding-box, linear-gradient(180deg, var(--edge0), var(--edge1)) border-box; box-shadow: inset 0 1px 0 var(--hl), var(--e3); }
 /* hero 的斜向柔光：左上一道白光斜着扫下来、右下再亮一点、右上角一点冰蓝（7%）。静态的，不动；z-index -1 让它压在文字下面，不吃对比度。
    动的那道流光是 .hero::after，在动效块里。 */
 .hero::before { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: -1; border-radius: inherit;
   background:
     radial-gradient(70% 60% at 100% 0%, var(--hero-cool), transparent 70%),
     linear-gradient(120deg, var(--hero-light) 0%, transparent 42%, transparent 60%, var(--hero-light2) 100%); }
-.hero .title { font-size: 26px; font-weight: 800; letter-spacing: -.02em; line-height: 1.15; margin: 6px 0 4px; }
+.hero .title { font-size: 17px; font-weight: 700; letter-spacing: -.01em; line-height: 1.3; margin: 4px 0 2px; }
 .hero .sub { color: var(--ink2); font-size: 13px; }
-.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 16px 0 14px; }
-.stat { background: var(--mist); border-radius: 12px; padding: 12px 12px 10px; }
-.stat .v { font: 700 26px/1.1 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -.02em; color: var(--ink); }
-.stat .v small { font: inherit; font-size: 12px; font-weight: 600; letter-spacing: 0; color: var(--ink2); margin-left: 2px; }
-.stat .k { font-size: 12px; color: var(--ink2); margin-top: 4px; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0 12px; }
+.stat { padding: 12px 12px 10px; }
+.stat .v { font: 800 30px/1.1 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -.02em; color: var(--ink); }
+.stat .v small { font: inherit; font-size: 12px; font-weight: 500; letter-spacing: .02em; color: var(--ink2); margin-left: 2px; }
+.stat .k { font-size: 12px; font-weight: 500; letter-spacing: .02em; color: var(--ink2); margin-top: 4px; }
 .next { border-top: 1px solid var(--line2); padding-top: 12px; margin-top: 2px; }
-.next .t { font-size: 15px; font-weight: 700; }
-.kv { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 14px; }
+.kv { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; line-height: 1.5; }
 .kv + .kv { border-top: 1px solid var(--line2); }
 .kv .k { color: var(--ink2); flex-shrink: 0; white-space: nowrap; }
 .kv .v { text-align: right; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* 说话页那三行：标签一行、例句一行左对齐（右对齐的例句会折成「三／天」这种断法） */
+.kv.stack { display: block; }
+.kv.stack .k { display: block; font-size: 12px; margin-bottom: 2px; }
+.kv.stack .v { display: block; text-align: left; font-size: 15px; color: var(--ink); }
 .mini { margin: 10px 0 0; padding: 0; list-style: none; }
-.mini li { display: flex; gap: 10px; align-items: baseline; padding: 5px 0; font-size: 14px; }
-.mini li .num { color: var(--blue2); font-weight: 700; font-size: 12.5px; min-width: 3.2em; }
+.mini li { display: flex; gap: 10px; align-items: baseline; padding: 5px 0; font-size: 13px; }
+.mini li .num { color: var(--blue2); font-weight: 500; font-size: 12px; letter-spacing: .02em; min-width: 3.2em; }
 .mini li .n { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mini li .c { color: var(--ink3); font-size: 12px; flex-shrink: 0; }
 /* 回顾：轨迹地图（SVG 自己画的，不联网）。线一条条画出来、点一个个亮起来——回顾的氛围就靠这两下。
-   底图线是 currentColor（墨色）压到 14%，路线冰蓝，站点是墨色圆点（暗色下反过来）。 */
-.map { margin: 14px -4px 0; border-radius: 14px; background: var(--map-bg); padding: 6px; cursor: pointer; }
+   底图线是 currentColor（墨色）压到 14%，路线一律冰蓝（第 2 / 3 / 4 天用深浅区分，不上别的颜色），站点是墨色圆点（暗色下反过来）。 */
+.map { margin: 12px -4px 0; border-radius: 14px; background: var(--map-bg); padding: 6px; cursor: pointer; }
 .map-card .map { margin: -4px 0 8px; }
 .trail { display: block; width: 100%; height: auto; color: var(--ink); }
 .trail .base { opacity: .14; }
 .trail .route { stroke: var(--blue); }
-.trail .route.d1 { stroke: var(--blue2); } .trail .route.d2 { stroke: #8F78FF; } .trail .route.d3 { stroke: var(--good); }
+.trail .route.d1 { stroke: var(--blue2); } .trail .route.d2 { stroke: var(--blue); opacity: .55; } .trail .route.d3 { stroke: var(--ink); opacity: .35; }
 .trail .pt.port { fill: var(--ink); }
 .trail .pt.stop { fill: var(--pt); stroke: var(--blue); stroke-width: 2; }
 .trail .pt.stop.got { fill: var(--blue); }
@@ -323,7 +360,7 @@ nav.tabs button:active { transform: none; }
   @keyframes draw { to { stroke-dashoffset: 0; } }
   @keyframes pop { from { opacity: 0; transform: scale(.4); transform-origin: center; transform-box: fill-box; } to { opacity: 1; transform: scale(1); transform-origin: center; transform-box: fill-box; } }
 }
-.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink2); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; font-weight: 500; letter-spacing: .02em; color: var(--ink2); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend .sw { width: 10px; height: 10px; border-radius: 999px; display: inline-block; border: 2px solid var(--blue); background: var(--pt); box-sizing: border-box; }
 .legend .sw.port { border: 0; background: var(--ink); border-radius: 2px; transform: rotate(45deg); width: 8px; height: 8px; }
@@ -338,11 +375,11 @@ nav.tabs button:active { transform: none; }
 <div class="busy tag" id="busy" hidden>正在排…</div>
 <main id="view"><p class="muted">正在打开…</p></main>
 <nav class="tabs" id="tabs">
-  <button data-tab="home">出行</button>
-  <button data-tab="trip" aria-current="page">行程</button>
-  <button data-tab="places">地方</button>
-  <button data-tab="speech">说话</button>
-  <button data-tab="settings">设置</button>
+  <button data-tab="home"><span>出行</span></button>
+  <button data-tab="trip" aria-current="page"><span>行程</span></button>
+  <button data-tab="places"><span>地方</span></button>
+  <button data-tab="speech"><span>说话</span></button>
+  <button data-tab="settings"><span>设置</span></button>
 </nav>
 <div id="sheet-root"></div>
 <div id="toast-root"></div>
