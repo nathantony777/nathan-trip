@@ -172,9 +172,9 @@ function undo() {
   saveState(); replan(); render();
   toast('撤销了', false);
 }
-function toast(text, canUndo) {
+function toast(text, canUndo, isHTML) {   // isHTML：text 已经是转义好的 HTML（只有 openApp 那条带链接的用）
   clearTimeout(toastTimer);
-  $('#toast-root').innerHTML = `<div class="toast"><span class="grow">${esc(text)}</span>${canUndo ? '<button data-act="undo">撤销</button>' : ''}</div>`;
+  $('#toast-root').innerHTML = `<div class="toast"><span class="grow">${isHTML ? text : esc(text)}</span>${canUndo ? '<button data-act="undo">撤销</button>' : ''}</div>`;
   // 能撤销的留久一点：手机上看到、反应过来要几秒。收起时先加 .leaving 淡出 200ms 再清（下一条 toast 来了 clearTimeout 会把两步一起撤）
   toastTimer = setTimeout(() => {
     const t = $('#toast-root .toast'); if (t) t.classList.add('leaving');
@@ -363,13 +363,13 @@ function legHTML(leg, copyText) {
   const L = leg.links || {};
   const btns = [];
   if (useAmap()) btns.push(`<button class="sm" data-act="openApp" data-app="${esc(L.amap)}" data-web="${esc(L.amapWeb || '')}">高德地图</button>`);
-  else btns.push(`<button class="sm" data-act="openApp" data-app="${esc(L.google)}" data-web="${esc(L.googleWeb || '')}">谷歌地图</button>`);
+  else btns.push(`<button class="sm" data-act="openApp" data-app="${esc(L.googleWeb || L.google)}" data-web="">谷歌地图</button>`);   // https 通用链接：装了谷歌地图直接开 app
   // 打车：按这一趟去哪（不按网络）。滴滴：大陆 + 香港；Uber：香港 + 国外。
   // ★ Uber 的链接能带目的地（坐标 + 名字），打开就是填好终点的下单页。
   // ★ 滴滴没有对外公开的「带目的地打开」链接（要企业合作才有），所以按钮是【先把目的地复制好，再开滴滴】，进去粘贴一下。别猜参数（猜错只会留一串报错）。
   const R = region();
   if (R !== 'abroad') btns.push(`<button class="sm" data-act="openApp" data-app="diditaxi://" data-web="" data-copy="${esc(L.copyText || copyText)}">滴滴</button>`);
-  if (R !== 'cn' && L.uber) btns.push(`<button class="sm" data-act="openApp" data-app="${esc(L.uber)}" data-web="${esc(L.uberWeb || '')}">Uber</button>`);
+  if (R !== 'cn' && L.uber) btns.push(`<button class="sm" data-act="openApp" data-app="${esc(L.uberWeb || L.uber)}" data-web="">Uber</button>`);   // https 通用链接：装了 Uber 直接开 app、终点填好
   btns.push(`<button class="quiet sm" data-act="copy" data-text="${esc(L.copyText || copyText)}">复制地址</button>`);
   return `<div class="leg">${leg.mode === 'est' ? `<span class="flag">${esc(leg.text)}</span>` : esc(leg.text)}<div class="row">${btns.join('')}</div></div>`;
 }
@@ -580,8 +580,8 @@ function renderHome() {
     <button class="primary big" style="margin-top:16px" data-act="newTripSheet">新的一趟</button></div>`);
   // 不建行程也能直接开地图（Nathan 0924：「假如我不建行程只是想看一下地图呢」）：光开 app，没装就开网页版
   out.push(`<div class="card tight" style="padding:10px 12px"><div class="row"><span class="small muted" style="padding:0 4px">直接开</span>
-    <button class="sm grow" data-act="openApp" data-app="iosamap://" data-web="https://amap.com/">高德地图</button>
-    <button class="sm grow" data-act="openApp" data-app="comgooglemaps://" data-web="https://maps.google.com/">谷歌地图</button></div></div>`);
+    <button class="sm grow" data-act="openApp" data-app="iosamap://" data-web="https://uri.amap.com/search?keyword=&src=nathan-trip">高德地图</button>
+    <button class="sm grow" data-act="openApp" data-app="https://maps.google.com/" data-web="">谷歌地图</button></div></div>`);
   const others = rows.filter(r => !r.current);
   const live = others.filter(r => r.phase !== 'past'), past = others.filter(r => r.phase === 'past');
   const PH = { now: '进行中', future: '将来', past: '过去' };
@@ -1234,10 +1234,45 @@ function sheet(html) {
 function closeSheet() {
   const r = $('#sheet-root');
   if (!r.firstChild || sheetCloseTimer) return;            // 没开着 / 已经在关：不重复
-  if (noMotion()) { r.innerHTML = ''; return; }
+  if (noMotion()) { r.innerHTML = ''; r.classList.remove('dragged'); return; }
   r.classList.add('closing');
-  sheetCloseTimer = setTimeout(() => { sheetCloseTimer = null; r.classList.remove('closing'); r.innerHTML = ''; }, 200);
+  sheetCloseTimer = setTimeout(() => { sheetCloseTimer = null; r.classList.remove('closing', 'dragged'); r.innerHTML = ''; }, 200);
 }
+// 弹层下拉关闭（Nathan 0924：「下拉居然不能退出，直接照搬苹果的交互模式」）：
+// 手指在弹层里、内容已经滚到顶，往下拖 → 弹层跟着手指走、底下的暗幕跟着变淡；松手时拖过 110px 或甩得快（> 0.5 px/ms）就关，否则弹回去。
+// 往上拖、或内容还没滚到顶：不管，让它正常滚。拖着关的时候加 .dragged，让 CSS 的关闭动画别再从 0 重放一遍（会先跳回顶上再滑下去）。
+let drag = null;
+document.addEventListener('touchstart', e => {
+  const sh = e.target.closest('#sheet-root .sheet'); if (!sh || e.touches.length !== 1) { drag = null; return; }
+  drag = { sh, bg: $('#sheet-root .sheet-bg'), y0: e.touches[0].clientY, t0: performance.now(), dy: 0, on: false, top: sh.scrollTop <= 0 };
+}, { passive: true });
+document.addEventListener('touchmove', e => {
+  if (!drag) return;
+  const dy = e.touches[0].clientY - drag.y0;
+  if (!drag.on) {
+    if (dy > 8 && drag.top && drag.sh.scrollTop <= 0) { drag.on = true; drag.sh.style.transition = 'none'; }
+    else if (dy < -8 || drag.sh.scrollTop > 0) { drag = null; return; }
+    else return;
+  }
+  e.preventDefault();
+  // 速度按【最后一段】算，不按总位移 / 总时间：拖下去又拖回来的，最后一段是向上的（负），不算甩
+  const now = performance.now(); const nd = Math.max(0, dy);
+  drag.vy = (nd - drag.dy) / Math.max(1, now - (drag.t1 || drag.t0)); drag.dy = nd; drag.t1 = now;
+  drag.sh.style.transform = `translateY(${drag.dy}px)`;
+  if (drag.bg) drag.bg.style.opacity = String(Math.max(0, 1 - drag.dy / 400));
+}, { passive: false });
+function dragEnd() {
+  if (!drag) return; const d = drag; drag = null;
+  if (!d.on) return;
+  const v = d.vy || 0;
+  d.sh.style.transition = 'transform .22s cubic-bezier(.32,.72,0,1)';
+  if (d.dy > 110 || v > 0.5) {
+    d.sh.style.transform = 'translateY(100%)';
+    if (d.bg) { d.bg.style.transition = 'opacity .2s'; d.bg.style.opacity = '0'; }
+    $('#sheet-root').classList.add('dragged'); closeSheet(); pendingInboxId = null;
+  } else { d.sh.style.transform = ''; if (d.bg) d.bg.style.opacity = ''; }
+}
+document.addEventListener('touchend', dragEnd); document.addEventListener('touchcancel', dragEnd);
 
 function brandOptions(sel) {
   return data.brands.map(b => `<option value="${esc(b.brand)}" ${sel === b.brand ? 'selected' : ''}>${esc(b.brand)}</option>`).join('');
@@ -1569,14 +1604,19 @@ document.addEventListener('click', async e => {
       mutate(() => Trip.updateDay(state, el.dataset.date, { start: { kind: 'station', code }, startTime: t }), `从${stations.find(s => s.code === code).name}站 ${toHM(t)} 重排`);
       closeSheet(); break;
     }
-    case 'openApp': {   // 先试 app 的链接，没装就开网页版
-      const web = el.dataset.web;
-      if (el.dataset.copy) { try { await navigator.clipboard.writeText(el.dataset.copy); toast('目的地复制好了，进滴滴后粘贴到「你要去哪儿」', false); } catch {} }
+    case 'openApp': {
+      // ★ 跳转必须在手指点下的那一下里【同步】发出：iPhone 只认用户手势里的跳转，await（哪怕只是等剪贴板）之后再跳会被拦，
+      //   过 1.5 秒再 window.open 也会被当弹窗拦掉（0924 他手机上「不好使」就是这两条）。剪贴板只发不等。
+      // https 的是通用链接（Uber / 谷歌地图 / 高德网页）：装了 app 系统直接开 app，没装开网页，一步到位；
+      // 自定义协议（iosamap:// / diditaxi://）没装会跳不动，1.5 秒还在这页就给一条带网页版链接的提示，让他自己点（点是手势，能开）。
+      const app = el.dataset.app, web = el.dataset.web;
+      if (el.dataset.copy) navigator.clipboard.writeText(el.dataset.copy).then(() => toast('目的地复制好了，进滴滴后粘贴到「你要去哪儿」', false)).catch(() => {});
+      if (/^https?:/.test(app)) { window.open(app, '_blank', 'noopener'); break; }
       let left = false;
       const onHide = () => { left = true; };
       document.addEventListener('visibilitychange', onHide, { once: true });
-      location.href = el.dataset.app;
-      setTimeout(() => { document.removeEventListener('visibilitychange', onHide); if (!left && !document.hidden && web) window.open(web, '_blank'); }, 1500);
+      location.href = app;
+      setTimeout(() => { document.removeEventListener('visibilitychange', onHide); if (!left && !document.hidden) toast(web ? `没跳过去？可能没装这个 app。<a href="${esc(web)}" target="_blank" rel="noopener">开网页版</a>` : '没跳过去：手机上可能没装这个 app', false, true); }, 1500);
       break;
     }
     case 'copy': {
