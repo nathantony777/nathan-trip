@@ -14,12 +14,15 @@ import { parseSpeech } from './speech.js';
 import { PRESETS, makeAI } from './ai.js';
 import { coordsFromText } from './maplinks.js';
 import { hm } from './engine.js';
+import { trailSVG } from './map.js';
+import { parseShare } from './collect.js';   // 收藏箱：把分享文字 / 收藏文件认成一条条店（规格 15.13）
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const toHM = m => { if (m == null || !isFinite(m)) return ''; const x = Math.round(m); return `${String(Math.floor(x / 60) % 24).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
 const fromHM = s => { const m = String(s || '').match(/^(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+const fmtGot = iso => { const d = new Date(iso || ''); return isNaN(d) ? '' : `${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const nowMin = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
 const STATUS_TEXT = { todo: '还没买', bought: '买到', skip: '跳过', enough: '够了', notEnough: '没买够' };
 const PROVIDER_NAME = { google: '谷歌', amap: '高德' };
@@ -31,6 +34,8 @@ let fetching = null;      // 正在取路程：{ abort, done, total }
 let pendingHits = null;   // 搜出来还没加的地方
 let pendingDraft = null;  // 「听懂」出来还没确认的草稿：{ text, draft, note, hkItems }
 let listening = false;    // 正在找地方（说话页确认之后）
+let pendingInboxId = null; // 从收藏箱点「加到这趟」正在填表的那条；存成地方之后记回收藏箱（用在哪一趟）
+let showInboxDone = false; // 收藏箱里已处理的（加过 / 不要了）展不展开
 
 // ---------------- 存储（IndexedDB） ----------------
 
@@ -110,8 +115,31 @@ async function replan() {
     planning = false;
   }
   plan = r || { ok: false, error: '排路线出错了，改一下清单会再排一次' };   // 空结果会让行程页一直停在「正在排…」
+  archiveTrail();
   $('#busy').hidden = true;
   render();
+}
+// 排出来的路线存一份「轨迹」进这趟（首页小图、回顾页的地图都读它）；过去的趟不再排，靠存下来的这份。
+// 只在变了的时候写盘，不走 mutate（不算一次「改动」、不进撤销）。
+function trailFromPlan(p) {
+  if (!p || !p.ok) return null;
+  return { days: p.days.filter(d => d && d.ok).map(d => ({
+    date: d.date,
+    start: d.start ? { name: d.start.name, lat: d.start.lat, lng: d.start.lng, time: d.start.time } : null,
+    end: d.end ? { name: d.end.name, lat: d.end.lat, lng: d.end.lng, arrive: d.end.arrive ?? null } : null,
+    stops: (d.stops || []).flatMap(s => s.parts.map(pt => ({ name: pt.name, lat: s.lat, lng: s.lng, begin: pt.begin, end: pt.end, storeId: pt.storeId, isPlace: !!pt.isPlace, placeId: pt.placeId || null, addr: pt.addr || '', items: pt.items.filter(i => !i.isPlace).map(i => ({ id: i.id, name: i.name })) }))),
+  })) };
+}
+function archiveTrail() {
+  if (!state || !plan || !plan.ok) return;
+  const tr = trailFromPlan(plan);
+  if (tr && JSON.stringify(tr) !== JSON.stringify(state.trail || null)) { state.trail = tr; saveState(); }
+}
+// 轨迹里的东西配上现在的状态（买到 / 没货 / 跳过）
+function trailWithStatus(t) {
+  const tr = t && t.trail; if (!tr) return null;
+  const st = new Map((t.items || []).map(i => [i.id, i]));
+  return { days: tr.days.map(d => ({ ...d, stops: d.stops.map(s => ({ ...s, items: s.items.map(i => { const it = st.get(i.id); return { ...i, status: it ? it.status : 'todo', noStock: it && (it.noStock || []).includes(s.storeId) }; }) })) })) };
 }
 
 // ---------------- 改 state：一律走这里（存盘 + 重排 + 可撤销） ----------------
@@ -351,6 +379,7 @@ function renderPlaces() {
     </div>`);
   }
   out.push(`<div class="row"><button class="grow" data-act="newPlace">${R === 'hk' ? '加一个地方（吃饭、取货、朋友家）' : '手动加一个（定位 / 贴链接）'}</button></div>`);
+  out.push(renderInbox());   // 收藏箱：任何地区都显示
   if (R === 'hk' && plan && plan.ok) out.push(renderRouteStops());
   const todo = state.places.filter(p => p.status === 'todo');
   const done = state.places.filter(p => p.status !== 'todo');
@@ -396,7 +425,82 @@ function placeRow(p) {
   const flag = p.status === 'todo' && !p.hours && p.from == null && p.to == null && p.at == null ? '<div class="flag small">营业时间未核实，按 10:00–20:00 算</div>' : '';
   return `<div class="list-row"><div class="grow" data-act="editPlace" data-id="${esc(p.id)}">
     <b>${esc(p.name)}</b> <span class="tag">${esc(Trip.KINDS[p.kind] || '其他')}</span>${p.status === 'todo' ? '' : `<span class="tag">${p.status === 'done' ? '去过了' : '不去了'}</span>`}
-    <div class="muted small">${esc(meta)}</div>${flag}</div></div>`;
+    <div class="muted small">${esc(meta)}</div>${flag}</div>${p.link ? `<a class="small" href="${esc(p.link)}" target="_blank" rel="noopener">原帖</a>` : ''}</div>`;
+}
+
+// ---------------- 收藏箱：小红书 / 大众点评 / 抖音里收藏的店，先收进来，再一条条加到这趟 ----------------
+
+function renderInbox() {
+  const list = root.inbox || [];
+  const st = Trips.inboxStats(root);
+  const fresh = list.filter(e => !e.used && !e.dropped).sort((a, b) => String(b.got || '').localeCompare(String(a.got || '')));
+  const done = list.filter(e => e.used || e.dropped).sort((a, b) => String(b.got || '').localeCompare(String(a.got || '')));
+  const out = [`<h2>收藏箱 <span class="tag blue">${st.fresh} 条还没处理</span></h2>`];
+  out.push(`<div class="card">
+    <p class="small muted">${st.total ? `一共 ${st.total} 条，上次收进来 ${esc(fmtGot(st.last))}。` : '小红书 / 大众点评 / 抖音里收藏的店，从这里进来。'}再导一次只进新的，重复的自动跳过。</p>
+    <div class="row"><button class="grow" data-act="inboxFile">导入收藏文件</button><button class="grow" data-act="inboxPaste">粘贴分享文字</button></div>
+    <input type="file" id="inbox-file" accept=".txt,text/plain" hidden>
+    <p class="small muted">怎么让文件自己长：看「给Nathan_手机快捷指令.md」——在三个 app 里点分享 → 「存到出行」，就记进手机里的一个文件。</p>
+  </div>`);
+  if (fresh.length) out.push(`<div class="card tight">${fresh.map(e => inboxRow(e, false)).join('')}</div>`);
+  if (done.length) {
+    out.push(`<div class="row"><button class="quiet grow" data-act="toggleInboxDone">${showInboxDone ? '收起已处理的' : `看已处理的（${done.length}）`}</button></div>`);
+    if (showInboxDone) out.push(`<div class="card tight">${done.map(e => inboxRow(e, true)).join('')}</div>`);
+  }
+  return out.join('');
+}
+// 一条的状态字：加到了哪一趟 / 不要了；趟被删了就写地区名
+function inboxStatusText(e) {
+  if (e.dropped) return '不要了';
+  if (e.used) { const t = root.trips[e.used]; return `已加到「${t && t.trip && t.trip.name ? t.trip.name : Trip.REGIONS[region()].name}」`; }
+  return '';
+}
+function inboxRow(e, isDone) {
+  const sub = e.addr || String(e.text || '').slice(0, 60);
+  return `<div class="list-row"><div class="grow" data-act="inboxOpen" data-id="${esc(e.id)}"><b>${esc(e.name || e.title || '（没有名字）')}</b> ${e.source ? `<span class="tag">${esc(e.source)}</span>` : ''}${isDone ? `<span class="tag">${esc(inboxStatusText(e))}</span>` : ''}
+    ${sub ? `<div class="muted small">${esc(sub)}</div>` : ''}</div>
+    ${isDone ? '' : `<button data-act="inboxAdd" data-id="${esc(e.id)}">加到这趟</button><button class="quiet" data-act="inboxDrop" data-id="${esc(e.id)}">不要了</button>`}</div>`;
+}
+function inboxPasteSheet() {
+  sheet(`<h2>粘贴分享文字</h2>
+    <p class="small muted">小红书 / 大众点评 / 抖音里点分享 → 复制链接（或复制文字），贴进来；一次贴很多条也行。</p>
+    <textarea id="inbox-text" style="min-height:120px"></textarea>
+    <div class="row" style="margin-top:12px"><button class="primary grow" data-act="inboxPasteDo">收下</button><button class="quiet" data-act="closeSheet">取消</button></div>`);
+}
+function inboxOpenSheet(id) {
+  const e = (root.inbox || []).find(x => x.id === id);
+  if (!e) return;
+  const isDone = !!(e.used || e.dropped);
+  sheet(`<h2>${esc(e.name || e.title || '（没有名字）')}</h2>
+    <p class="small">${e.source ? `<span class="tag">${esc(e.source)}</span>` : ''}${isDone ? `<span class="tag">${esc(inboxStatusText(e))}</span>` : ''}${e.got ? `<span class="muted">收进来 ${esc(fmtGot(e.got))}</span>` : ''}</p>
+    ${e.addr ? `<p class="small">${esc(e.addr)}</p>` : ''}
+    ${e.text ? `<p class="small muted" style="white-space:pre-wrap">${esc(e.text)}</p>` : ''}
+    ${e.url ? `<p class="small"><a href="${esc(e.url)}" target="_blank" rel="noopener">打开原帖</a></p>` : ''}
+    <div class="row" style="margin-top:12px">${isDone ? '' : `<button class="primary grow" data-act="inboxAdd" data-id="${esc(e.id)}">加到这趟</button><button class="quiet danger" data-act="inboxDrop" data-id="${esc(e.id)}">不要了</button>`}<button class="quiet" data-act="closeSheet">关掉</button></div>`);
+}
+// 收：分享文字 / 收藏文件 → 认出店 → 只进新的。认不出一条就直说，什么都不改。
+function inboxIngest(text, from) {
+  const entries = parseShare(String(text || ''));
+  if (!entries.length) { alert('这段文字里认不出店：要有店名或链接。'); return false; }
+  let r = { added: 0, skipped: 0 };
+  const ok = mutate(() => { r = Trips.addToInbox(root, entries); });
+  if (!ok) return false;
+  toast(`认出 ${entries.length} 条，新收 ${r.added} 条${r.skipped ? '，' + r.skipped + ' 条已有' : ''}`, true);
+  return true;
+}
+// 「加到这趟」：开地方表单，名字 / 备注先填上；位置要人定（收藏里没有坐标）。香港：按名字猜一个港铁站先选上。
+function inboxAdd(id) {
+  const e = (root.inbox || []).find(x => x.id === id);
+  if (!e) return;
+  if (!state) { alert('先在「我的出行」建一趟，再往里加'); return; }
+  let st = '';
+  if (region() === 'hk') {
+    const hay = [e.addr, e.name, e.text].filter(Boolean).join(' ');
+    const hit = stations.find(s => hay.includes(s.name));
+    if (hit) st = hit.code;
+  }
+  pendingInboxId = id;
+  editPlace(null, { name: e.name || e.title || '', note: [e.source, e.addr].filter(Boolean).join(' · '), link: e.url || '', st });
 }
 
 async function doSearch() {
@@ -420,12 +524,19 @@ async function doSearch() {
 function addHit(i) {
   const h = pendingHits && pendingHits[i];
   if (!h) return;
-  const done = mutate(() => Trip.addPlace(state, {
-    name: h.name, addr: h.addr || '', lat: h.lat, lng: h.lng, sys: h.sys, placeId: h.placeId || null, citycode: h.citycode || null,
-    kind: h.kind || 'other', hours: h.hours || null, hoursText: h.hoursText || '', hoursVerified: !!h.hoursVerified, phone: h.phone || '',
-    source: h.source || providerName(), how: '搜到的',
-  }), `加了「${h.name}」，已重排（路程还没取，先按直线估）`);
-  if (done) { closeSheet(); pendingHits = null; }
+  const done = mutate(() => {
+    const pl = Trip.addPlace(state, {
+      name: h.name, addr: h.addr || '', lat: h.lat, lng: h.lng, sys: h.sys, placeId: h.placeId || null, citycode: h.citycode || null,
+      kind: h.kind || 'other', hours: h.hours || null, hoursText: h.hoursText || '', hoursVerified: !!h.hoursVerified, phone: h.phone || '',
+      source: h.source || providerName(), how: '搜到的',
+    });
+    if (pendingInboxId) {   // 从收藏箱来、走了「联网搜这个名字」这条路：记回收藏箱，原帖链接带上
+      const e = (root.inbox || []).find(x => x.id === pendingInboxId);
+      if (e && e.url) pl.link = e.url;
+      Trips.markInbox(root, pendingInboxId, { used: root.current });
+    }
+  }, `加了「${h.name}」，已重排（路程还没取，先按直线估）`);
+  if (done) { closeSheet(); pendingHits = null; pendingInboxId = null; }
 }
 
 // ---------------- 首页：我的出行（规格 15.2 / 15.7） ----------------
@@ -439,19 +550,21 @@ function renderHome() {
   else out.push(`<div class="card hero"><div class="eyebrow">还没有出行</div><div class="title">说一句就能建一趟</div><div class="sub">比如「10月8日去深圳」「国庆去香港三天」</div>
     <button class="primary big" style="margin-top:16px" data-act="newTripSheet">新的一趟</button></div>`);
   const others = rows.filter(r => !r.current);
-  if (others.length) {
-    const PH = { now: '进行中', future: '将来', past: '过去' };
-    out.push(`<h2>其他出行（${others.length}）</h2><div class="card tight">`);
-    for (const r of others) {
-      out.push(`<div class="list-row"><div class="grow" data-act="openTrip" data-id="${esc(r.id)}"><b>${esc(r.name)}</b> <span class="tag">${esc(Trip.REGIONS[r.region].name)}</span><span class="tag">${PH[r.phase]}</span>
+  const live = others.filter(r => r.phase !== 'past'), past = others.filter(r => r.phase === 'past');
+  const PH = { now: '进行中', future: '将来', past: '过去' };
+  const row = r => `<div class="list-row"><div class="cover">${trailSVG(root.trips[r.id].trail, { w: 44, h: 44, mini: true, animate: false }) || '<span class="cover-empty"></span>'}</div>
+      <div class="grow" data-act="openTrip" data-id="${esc(r.id)}"><b>${esc(r.name)}</b> <span class="tag">${esc(Trip.REGIONS[r.region].name)}</span><span class="tag">${PH[r.phase]}</span>
         <div class="muted small">${esc(tripDates(r))} · ${esc(tripCounts(r))}</div></div>
-        <button data-act="openTrip" data-id="${esc(r.id)}">打开</button></div>`);
-    }
-    out.push('</div>');
+      <button data-act="openTrip" data-id="${esc(r.id)}">${r.phase === 'past' ? '回顾' : '打开'}</button></div>`;
+  if (live.length) out.push(`<h2>其他出行（${live.length}）</h2><div class="card tight">${live.map(row).join('')}</div>`);
+  if (past.length) {   // 过去的收着：存档在，不跟眼前这趟抢位置
+    out.push(`<h2 class="row" style="justify-content:space-between"><span>过去的出行（${past.length}）</span><button class="quiet" style="min-height:32px;font-size:13px" data-act="togglePast">${showPast ? '收起' : '展开'}</button></h2>`);
+    if (showPast) out.push(`<div class="card tight">${past.map(row).join('')}</div>`);
   }
   if (cur && state) out.push(`<div class="row" style="margin-top:16px"><button class="grow" data-act="newTripSheet">＋ 新的一趟</button></div>`);
   return out.join('');
 }
+let showPast = false;
 const tripDates = r => !r.from ? '还没定日期' : r.from === r.to ? dayLabel(r.from) : `${dayLabel(r.from, false)}–${dayLabel(r.to, false)}（${r.nDays} 天）`;
 // 香港那趟的「地方」是数据里的店，不在 places 里——数「站」要看排出来的路线（只有当前这趟排了）；别的地区数 places
 function tripCounts(r) {
@@ -487,9 +600,75 @@ function heroHTML(r) {
   } else if (!state.items.length && !state.places.length) next = `<div class="next muted small">还没有想去的地方。到「说话」页说一句，或者在「地方」页加。</div>`;
   else if (dv && dv.cannotReturn) next = `<div class="next"><div class="flag">${esc(dayLabel(focus))}这天回不去了，去「行程」页看</div></div>`;
   else if (plan && !plan.ok) next = `<div class="next"><div class="flag">排不出来：${esc(plan.error)}</div></div>`;
-  return `<div class="card hero"><div class="eyebrow">${esc(eyebrow)}</div><div class="title">${esc(r.name)}</div><div class="sub">${esc(tripDates(r))}${state.trip.home ? ` · 住${esc(state.trip.home.name)}` : ''}</div>
+  const map = trailSVG(state.trail, { w: 343, h: 200, mtr: R === 'hk' ? data.mtr : null });
+  const from = state.from ? `<div class="small faint" style="margin-top:4px">照「${esc(state.from.name)}」${state.from.date ? `（${esc(dayLabel(state.from.date, false))}）` : ''}那趟复制的</div>` : '';
+  const btns = r.phase === 'past'
+    ? `<button class="primary grow" data-act="review">回顾这趟</button><button class="grow" data-act="dupSheet" data-id="${esc(state.id)}">再来一次</button>`
+    : `<button class="primary grow" data-act="go" data-tab="trip">看行程</button><button class="grow" data-act="go" data-tab="speech">说一句</button>`;
+  return `<div class="card hero"><div class="eyebrow">${esc(eyebrow)}</div><div class="title">${esc(r.name)}</div><div class="sub">${esc(tripDates(r))}${state.trip.home ? ` · 住${esc(state.trip.home.name)}` : ''}</div>${from}
+    ${map ? `<div class="map" data-act="review">${map}</div>` : ''}
     <div class="stats">${stats}</div>${next}
-    <div class="row" style="margin-top:14px"><button class="primary grow" data-act="go" data-tab="trip">看行程</button><button class="grow" data-act="go" data-tab="speech">说一句</button></div></div>`;
+    <div class="row" style="margin-top:14px">${btns}</div></div>`;
+}
+
+// ---------------- 回顾（Nathan 0924：「有点回顾氛围的那种」）：地图 + 轨迹 + 这趟怎么样 ----------------
+
+function renderReview() {
+  const R = region(), rn = Trip.REGIONS[R].name;
+  const tr = trailWithStatus(state);
+  const rows = Trips.listTrips(root); const r = rows.find(x => x.current) || { phase: 'future', from: null, to: null, nDays: state.trip.days.length, name: state.trip.name || rn };
+  const out = [`<div class="row" style="margin:4px 0 0"><button class="quiet" data-act="go" data-tab="home" style="min-height:36px;padding:0 12px">‹ 我的出行</button></div>`];
+  out.push(`<div class="eyebrow" style="margin-top:12px">${r.phase === 'past' ? '回顾' : r.phase === 'now' ? '进行中' : '还没出发'} · ${esc(rn)}</div><h1 style="margin-top:2px">${esc(r.name)}</h1><div class="muted" style="margin:-6px 0 12px">${esc(tripDates(r))}${state.trip.home ? ` · 住${esc(state.trip.home.name)}` : ''}</div>`);
+  const map = tr ? trailSVG(tr, { w: 343, h: 300, mtr: R === 'hk' ? data.mtr : null }) : '';
+  if (map) out.push(`<div class="card map-card"><div class="map">${map}</div><div class="legend"><span><i class="sw port"></i>出发 / 回到</span><span><i class="sw stop"></i>要去的店</span><span><i class="sw got"></i>买到了</span>${R === 'hk' ? '<span><i class="sw base"></i>港铁</span>' : ''}</div></div>`);
+  else out.push('<div class="card muted small">还没有路线，所以没有轨迹。到「说话」页说一句，或者在「地方」页加。</div>');
+  // 这趟怎么样：数结果
+  const items = state.items || [], places = state.places || [];
+  const got = items.filter(i => ['bought', 'enough'].includes(i.status)).length;
+  const notEnough = items.filter(i => i.status === 'notEnough').length;
+  const skipped = items.filter(i => i.status === 'skip').length;
+  const todo = items.filter(i => i.status === 'todo').length;
+  const noStock = items.filter(i => (i.noStock || []).length).length;
+  const visited = places.filter(p => p.status === 'done').length;
+  const nStops = tr ? tr.days.reduce((n, d) => n + d.stops.length, 0) : 0;
+  const mins = tr ? Math.round(tr.days.reduce((n, d) => n + (d.end && d.end.arrive != null && d.start ? d.end.arrive - d.start.time : 0), 0)) : 0;
+  const stat = (v, k, unit) => `<div class="stat"><div class="v">${v}${unit ? `<small>${unit}</small>` : ''}</div><div class="k">${k}</div></div>`;
+  out.push(`<div class="card"><div class="eyebrow">这趟怎么样</div><div class="stats" style="margin-top:10px">${[
+    stat(nStops, '要走的店', '站'), stat(got, R === 'hk' ? '买到' : '买到 / 去过', '样'), stat(items.length ? todo : visited, items.length ? '还没买' : '去过的地方', items.length ? '样' : '个'),
+  ].join('')}</div>
+    <div class="kv"><span class="k">在外面</span><span class="v num">${mins ? `${Math.floor(mins / 60)} 小时 ${mins % 60} 分` : '—'}</span></div>
+    ${noStock ? `<div class="kv"><span class="k">碰上没货</span><span class="v">${noStock} 样（下次照这趟复制时，没货的记号会清掉）</span></div>` : ''}
+    ${notEnough ? `<div class="kv"><span class="k">没买够</span><span class="v">${notEnough} 样</span></div>` : ''}
+    ${skipped ? `<div class="kv"><span class="k">跳过</span><span class="v">${skipped} 样</span></div>` : ''}
+    ${state.from ? `<div class="kv"><span class="k">照着</span><span class="v">「${esc(state.from.name)}」${state.from.date ? esc(dayLabel(state.from.date, false)) : ''} 那趟</span></div>` : ''}
+  </div>`);
+  // 轨迹：一天一段，每站几点到、买了什么
+  if (tr) for (const d of tr.days) {
+    if (!d.stops.length) continue;
+    out.push(`<h2>${esc(dayLabel(d.date))}${d.start ? ` · <span class="num">${hm(d.start.time)}</span> 从${esc(d.start.name)}出发` : ''}</h2><div class="card tight">`);
+    d.stops.forEach((s, i) => {
+      const its = s.items.map(it => `<span class="tag ${['bought', 'enough'].includes(it.status) ? 'ok' : it.noStock ? 'bad' : it.status === 'skip' || it.status === 'notEnough' ? 'warn' : ''}">${esc(it.name)}${it.noStock ? '·没货' : it.status === 'skip' ? '·跳过' : it.status === 'notEnough' ? '·没买够' : it.status === 'todo' ? '' : ''}</span>`).join('');
+      out.push(`<div class="list-row"><span class="idx">${i + 1}</span><div class="grow"><b>${esc(s.name)}</b> <span class="num small muted">${hm(s.begin)}–${hm(s.end)}</span>${s.addr ? `<div class="muted small">${esc(s.addr)}</div>` : ''}${its ? `<div style="margin-top:4px">${its}</div>` : ''}</div></div>`);
+    });
+    if (d.end && d.end.arrive != null) out.push(`<div class="list-row"><span class="idx" style="background:transparent;color:var(--ink3)">▪</span><div class="grow muted"><span class="num">${hm(d.end.arrive)}</span> 回到${esc(d.end.name)}</div></div>`);
+    out.push('</div>');
+  }
+  // 说过的话
+  if ((state.speech || []).length) out.push(`<h2>说过的（${state.speech.length}）</h2><div class="card tight">${state.speech.slice(-5).reverse().map(h => `<div class="list-row"><div class="grow"><div>${esc(h.text)}</div><div class="muted small">${esc(fmtWhen(h.at))}</div></div></div>`).join('')}</div>`);
+  out.push(`<div class="row" style="margin-top:20px"><button class="primary grow" data-act="dupSheet" data-id="${esc(state.id)}">照这趟再来一次</button><button class="grow" data-act="exportCopy">复制这趟的备份</button></div>
+    <p class="muted small">再来一次 = 地方、要买的东西、酒店、每天几点出发都带过去，只改日期；买到没买到从头记。这趟本身留在这，不动。</p>`);
+  return out.join('');
+}
+function dupSheet(id) {
+  const t = root.trips[id]; if (!t) return;
+  const name = t.trip.name || Trip.REGIONS[t.trip.region].name;
+  const ds = (t.trip.days || []).map(d => d.date).sort();
+  const def = ds[0] && ds[0] > Trip.localDateStr() ? ds[0] : Trip.localDateStr();
+  sheet(`<h2>照「${esc(name)}」再来一次</h2>
+    <p class="small muted">带过去：${t.places.length ? `${t.places.length} 个地方、` : ''}${t.items.length ? `${t.items.length} 样东西、` : ''}${t.trip.home ? '酒店、' : ''}每天几点出发几点回${ds.length > 1 ? `（${ds.length} 天，日期整体平移）` : ''}。买到 / 去过 / 没货的记号从头记。</p>
+    <label class="f">这次叫什么</label><input id="dup-name" value="${esc(name)}">
+    <label class="f">第一天</label><input type="date" id="dup-date" value="${def}">
+    <div class="row" style="margin-top:16px"><button class="primary grow" data-act="dupDo" data-id="${esc(id)}">建这趟</button><button class="quiet" data-act="closeSheet">关掉</button></div>`);
 }
 function daysUntil(date) {
   const n = Math.round((new Date(date + 'T00:00') - new Date(Trip.localDateStr() + 'T00:00')) / 864e5);
@@ -891,8 +1070,11 @@ function renderSettings() {
   </div>`);
   out.push(`<h2>备份（清单只存在这台手机里；不含钥匙）</h2>
   <div class="card">
-    <div class="row"><button class="grow" data-act="exportCopy">复制备份文字</button>${navigator.share ? '<button class="grow" data-act="exportShare">发到备忘录</button>' : ''}</div>
-    <label class="f">恢复：把备份文字粘贴进来</label><textarea id="s-import" placeholder="Nathan出行备份 v2 …"></textarea>
+    <label class="f">这一趟</label>
+    <div class="row"><button class="grow" data-act="exportCopy">复制这趟的备份</button>${navigator.share ? '<button class="grow" data-act="exportShare">发到备忘录</button>' : ''}</div>
+    <label class="f">全部出行（${Object.keys(root.trips).length} 趟 + 收藏箱 ${(root.inbox || []).length} 条，换手机用这个）</label>
+    <div class="row"><button class="grow" data-act="exportAllCopy">复制全部的备份</button>${navigator.share ? '<button class="grow" data-act="exportAllShare">发到备忘录</button>' : ''}</div>
+    <label class="f">恢复：把备份文字粘贴进来（一趟的、全部的都认）</label><textarea id="s-import" placeholder="Nathan出行备份 v2 … / Nathan出行全部备份 v3 …"></textarea>
     <button class="big" data-act="importBackup">恢复</button>
   </div>
   <h2>全部清空</h2>
@@ -1051,13 +1233,17 @@ function readWhere(old) {
   return null;
 }
 
-function editPlace(id) {
+// pre：从收藏箱来的预填 { name, note, link(原帖), st(港铁站 code) }；只在新增时用
+function editPlace(id, pre) {
   const isNew = !id;
   const R = region();
   const p = isNew ? { name: '', lat: null, lng: null, kind: 'other', dur: Trip.DEFAULT_DUR.other, day: null, at: null, from: null, to: null, must: true, note: '', how: '', status: 'todo', hoursText: '' } : state.places.find(x => x.id === id);
   if (!p) return;
+  if (isNew && pre) { p.name = pre.name || ''; p.note = pre.note || ''; }
+  const fromInbox = isNew && pre ? `<p class="small muted">从收藏箱来的：位置要你定（定位 / 贴地图链接 / 选站）${pre.link ? ` · <a href="${esc(pre.link)}" target="_blank" rel="noopener">打开原帖</a>` : ''}</p>
+    ${R !== 'hk' && hasKey() ? `<div class="row"><button class="grow" data-act="inboxSearch" data-q="${esc(p.name)}">联网搜这个名字</button></div>` : ''}` : '';
   const linkHint = R === 'cn' ? '贴高德 / 苹果地图的分享链接，或直接写坐标（谷歌的坐标在大陆会偏几百米，不收）' : '贴谷歌 / 苹果地图的分享链接，或直接写坐标';
-  sheet(`<h2>${isNew ? '加一个地方' : '改这个地方'}</h2>
+  sheet(`<h2>${isNew ? '加一个地方' : '改这个地方'}</h2>${fromInbox}
     <label class="f">叫什么</label><input id="p-name" value="${esc(p.name)}" placeholder="比如：吃午饭、朋友家取货">
     <label class="f">在哪${isNew ? '' : '（不改就留着）'}</label>
     <div class="card" style="margin:0">
@@ -1084,6 +1270,8 @@ function editPlace(id) {
   $('#sheet-root').dataset.lat = p.lat ?? '';
   $('#sheet-root').dataset.lng = p.lng ?? '';
   $('#sheet-root').dataset.how = p.how || '';
+  $('#sheet-root').dataset.link = (isNew && pre && pre.link) || '';   // 原帖链接：存成地方时带上；不从收藏箱来就清空，别沾上上一次的
+  if (isNew && pre && pre.st && $('#p-st')) $('#p-st').value = pre.st;
 }
 
 function getGPS() {
@@ -1167,10 +1355,10 @@ document.addEventListener('click', async e => {
     case 'go': tab = el.dataset.tab; render(); window.scrollTo(0, 0); break;
     case 'undo': undo(); break;
     case 'pickDay': curDay = el.dataset.date; render(); break;
-    case 'mark': { const it = state.items.find(x => x.id === id); mutate(() => P.markItem(state, id, el.dataset.status), `「${it ? it.name : ''}」${STATUS_TEXT[el.dataset.status]}，已重排`); break; }
+    case 'mark': { const it = state.items.find(x => x.id === id); mutate(() => { P.markItem(state, id, el.dataset.status); const x = state.items.find(y => y.id === id); if (x) { if (el.dataset.status === 'todo') delete x.markedAt; else x.markedAt = new Date().toISOString(); } }, `「${it ? it.name : ''}」${STATUS_TEXT[el.dataset.status]}，已重排`); break; }
     case 'nostock': { const it = state.items.find(x => x.id === id); mutate(() => P.noStockAt(state, id, el.dataset.store), `这家没有「${it ? it.name : ''}」，换别家重排`); break; }
     case 'exclude': mutate(() => P.excludeStore(state, el.dataset.store), `不去 ${storeName(el.dataset.store)}，已重排`); break;
-    case 'placeStatus': mutate(() => Trip.updatePlace(state, id, { status: el.dataset.status }), el.dataset.status === 'done' ? '去过了，已重排' : '不去了，已重排'); break;
+    case 'placeStatus': mutate(() => Trip.updatePlace(state, id, { status: el.dataset.status, markedAt: new Date().toISOString() }), el.dataset.status === 'done' ? '去过了，已重排' : '不去了，已重排'); break;
     case 'moveDay': moveDaySheet(id); break;
     case 'setDay': {
       const d = el.dataset.date || null;
@@ -1182,7 +1370,15 @@ document.addEventListener('click', async e => {
     case 'newItem': editItem(null); break;
     case 'editPlace': editPlace(id); break;
     case 'newPlace': editPlace(null); break;
-    case 'closeSheet': closeSheet(); break;
+    case 'closeSheet': closeSheet(); pendingInboxId = null; break;   // 取消 = 收藏箱那条没加成，别让下一个新地方沾上它
+    case 'inboxFile': $('#inbox-file').click(); break;
+    case 'inboxPaste': inboxPasteSheet(); break;
+    case 'inboxPasteDo': if (inboxIngest($('#inbox-text').value, '粘贴')) closeSheet(); break;
+    case 'inboxOpen': inboxOpenSheet(id); break;
+    case 'inboxAdd': inboxAdd(id); break;
+    case 'inboxDrop': mutate(() => Trips.markInbox(root, id, { dropped: true }), '不要了（8 秒内能撤销）'); closeSheet(); break;
+    case 'toggleInboxDone': showInboxDone = !showInboxDone; render(); break;
+    case 'inboxSearch': { closeSheet(); const q = $('#q'); if (q) q.value = el.dataset.q || ''; doSearch(); break; }   // 不清 pendingInboxId：搜到再「加进来」时记回收藏箱
     case 'paste': pasteSheet(); break;
     case 'parsePreview': parsePreview(); break;
     case 'parseCommit': {
@@ -1249,8 +1445,14 @@ document.addEventListener('click', async e => {
         must: $('#p-must').value === '1', note: $('#p-note').value.trim(),
       };
       if ($('#p-status')) patch.status = $('#p-status').value;
-      const done = id ? mutate(() => Trip.updatePlace(state, id, patch), '改好了，已重排') : mutate(() => Trip.addPlace(state, patch), `加了「${patch.name}」，已重排`);
-      if (done) closeSheet();
+      const done = id ? mutate(() => Trip.updatePlace(state, id, patch), '改好了，已重排') : mutate(() => {
+        const pl = Trip.addPlace(state, patch);
+        if (pendingInboxId) {   // 从收藏箱来的：原帖链接带上，收藏箱那条记成「已加到这趟」
+          if (ds.link) pl.link = ds.link;
+          Trips.markInbox(root, pendingInboxId, { used: root.current });
+        }
+      }, `加了「${patch.name}」，已重排`);
+      if (done) { closeSheet(); pendingInboxId = null; }
       break;
     }
     case 'delPlace': mutate(() => Trip.removePlace(state, id), '删了这个地方'); closeSheet(); break;
@@ -1364,12 +1566,23 @@ document.addEventListener('click', async e => {
       break;
     }
     case 'exportShare': { try { await navigator.share({ title: '出行备份', text: Trip.exportText(state) }); } catch { /* 他取消了 */ } break; }
+    case 'exportAllCopy': {
+      const txt = Trips.exportRoot(root);
+      try { await navigator.clipboard.writeText(txt); toast(`全部 ${Object.keys(root.trips).length} 趟的备份复制好了，贴到备忘录里存着`, false); } catch { prompt('复制这段：', txt); }
+      break;
+    }
+    case 'exportAllShare': { try { await navigator.share({ title: '出行全部备份', text: Trips.exportRoot(root) }); } catch { /* 他取消了 */ } break; }
     case 'importBackup': {
       try {
-        const bk = Trip.importBackup($('#s-import').value);
-        if (!bk) { alert('这不是备份文字（开头应该是「Nathan出行备份 v2」或 v1）。清单文字请去「清单」页粘贴。'); break; }
-        if (!confirm('恢复会替换现在的全部行程、地方、清单和进度，确定？')) break;
-        mutate(() => setCurrent(bk), '恢复好了');
+        const bk = Trips.importAny($('#s-import').value);
+        if (!bk) { alert('这不是备份文字（开头应该是「Nathan出行备份 v2」或「Nathan出行全部备份 v3」）。清单文字请去「说话」页粘贴。'); break; }
+        if (bk.kind === 'root') {
+          if (!confirm(`这是全部出行的备份（${bk.n} 趟）。恢复会替换手机上现在的全部出行（${Object.keys(root.trips).length} 趟），确定？（8 秒内能撤销）`)) break;
+          if (mutate(() => { root = bk.root; }, `恢复了 ${bk.n} 趟`)) { tab = state ? 'trip' : 'home'; render(); window.scrollTo(0, 0); }
+          break;
+        }
+        if (!confirm('恢复会替换现在这趟的全部行程、地方、清单和进度，确定？')) break;
+        mutate(() => setCurrent(bk.state), '恢复好了');
       } catch (err) { alert('恢复失败：' + err.message); }
       break;
     }
@@ -1378,7 +1591,16 @@ document.addEventListener('click', async e => {
     case 'newTrip': newTripFromBox(); break;
     case 'newTripSheet': newTripSheet(); break;
     case 'dayGo': curDay = el.dataset.date; tab = 'trip'; render(); window.scrollTo(0, 0); break;
-    case 'openTrip': if (mutate(() => Trips.switchTrip(root, id))) { tab = 'trip'; render(); window.scrollTo(0, 0); } break;
+    case 'openTrip': { const past = (Trips.listTrips(root).find(x => x.id === id) || {}).phase === 'past'; if (mutate(() => Trips.switchTrip(root, id))) { tab = past ? 'review' : 'trip'; render(); window.scrollTo(0, 0); } break; }
+    case 'review': tab = 'review'; render(); window.scrollTo(0, 0); break;
+    case 'togglePast': showPast = !showPast; render(); break;
+    case 'dupSheet': dupSheet(el.dataset.id); break;
+    case 'dupDo': {
+      const name = ($('#dup-name') ? $('#dup-name').value : '').trim(), firstDate = $('#dup-date') ? $('#dup-date').value : '';
+      if (!firstDate) { alert('先选第一天'); break; }
+      if (mutate(() => Trips.dupTrip(root, el.dataset.id, { name, firstDate }), `建了「${name || '这趟'}」，照上次的复制过来了`)) { closeSheet(); tab = 'trip'; render(); window.scrollTo(0, 0); }
+      break;
+    }
     case 'delTrip': {
       const name = state.trip.name || Trip.REGIONS[region()].name;
       if (!confirm(`删掉「${name}」这趟？行程、地方、清单、进度一起没了（8 秒内能撤销）。`)) break;
@@ -1430,12 +1652,14 @@ async function aiTest() {
 
 function render() {
   if (!state && tab !== 'home') tab = 'home';            // 没有当前趟：只能看首页
+  if (tab === 'review' && !state) tab = 'home';
+  const navTab = tab === 'review' ? 'home' : tab;
   for (const b of document.querySelectorAll('#tabs button')) {
     b.hidden = !state && b.dataset.tab !== 'home';
-    if (b.dataset.tab === tab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+    if (b.dataset.tab === navTab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   }
   const v = $('#view');
-  let html = tab === 'home' ? renderHome() : tab === 'trip' ? renderTrip() : tab === 'places' ? renderPlaces() : tab === 'speech' ? renderSpeech() : renderSettings();
+  let html = tab === 'home' ? renderHome() : tab === 'review' ? renderReview() : tab === 'trip' ? renderTrip() : tab === 'places' ? renderPlaces() : tab === 'speech' ? renderSpeech() : renderSettings();
   // 重排要 1–3 秒：这段时间下面还是改之前的路线（刚导入时会显示「0 样 · 0 站」），不说清楚会以为没改上。
   // 按钮照样能点（在店里要连着标几样）。
   if (tab === 'trip' && planning && plan) html = `<div class="card warn">正在按刚才的改动重排，下面还是改之前的路线…</div><div class="stale">${html}</div>`;
@@ -1466,3 +1690,12 @@ async function boot() {
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 boot();
+// 收藏文件：选中就读、读完清掉 value（同一个文件再选一次也能触发）
+document.addEventListener('change', async e => {
+  const inp = e.target;
+  if (!inp || inp.id !== 'inbox-file') return;
+  const f = inp.files && inp.files[0];
+  if (!f) return;
+  try { inboxIngest(await f.text(), f.name); } catch (err) { alert('这个文件读不了：' + err.message); }
+  inp.value = '';
+});

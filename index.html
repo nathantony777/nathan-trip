@@ -178,6 +178,33 @@ nav.tabs button:active { transform: none; }
 .mini li .num { color: var(--blue2); font-size: 12.5px; min-width: 3.2em; }
 .mini li .n { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mini li .c { color: var(--ink3); font-size: 12px; flex-shrink: 0; }
+/* 回顾：轨迹地图（SVG 自己画的，不联网）。线一条条画出来、点一个个亮起来——回顾的氛围就靠这两下 */
+.map { margin: 14px -4px 0; border-radius: 12px; background: linear-gradient(180deg, rgba(10,182,228,.05), rgba(10,182,228,.10)); padding: 6px; cursor: pointer; }
+.map-card .map { margin: -4px 0 8px; }
+.trail { display: block; width: 100%; height: auto; color: var(--ink); }
+.trail .route { stroke: var(--blue); }
+.trail .route.d1 { stroke: var(--blue2); } .trail .route.d2 { stroke: #7A5CFF; } .trail .route.d3 { stroke: #17C964; }
+.trail .pt.port { fill: var(--ink); }
+.trail .pt.stop { fill: var(--card); stroke: var(--blue); stroke-width: 2; }
+.trail .pt.stop.got { fill: var(--blue); }
+.trail .idx { font: 600 9.5px var(--mono); fill: var(--blue2); pointer-events: none; }
+.trail .pt.stop.got + .idx { fill: #fff; }
+.trail.mini .pt.stop { stroke-width: 1.5; }
+@media (prefers-reduced-motion: no-preference) {
+  .trail:not(.mini) .route[pathLength] { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 2.2s cubic-bezier(.4,0,.2,1) forwards; }
+  .trail:not(.mini) .pt, .trail:not(.mini) .idx { opacity: 0; animation: pop .45s ease-out forwards; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes pop { from { opacity: 0; transform: scale(.4); transform-origin: center; transform-box: fill-box; } to { opacity: 1; transform: scale(1); transform-origin: center; transform-box: fill-box; } }
+}
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend .sw { width: 10px; height: 10px; border-radius: 999px; display: inline-block; border: 2px solid var(--blue); background: var(--card); box-sizing: border-box; }
+.legend .sw.port { border: 0; background: var(--ink); border-radius: 2px; transform: rotate(45deg); width: 8px; height: 8px; }
+.legend .sw.got { background: var(--blue); }
+.legend .sw.base { border: 0; height: 2px; width: 14px; border-radius: 0; background: var(--ink); opacity: .25; }
+.cover { width: 44px; height: 44px; border-radius: 10px; background: var(--blue-mist); flex-shrink: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.cover .trail { width: 44px; height: 44px; }
+.cover-empty { width: 8px; height: 8px; border-radius: 999px; background: var(--line); }
 </style>
 </head>
 <body>
