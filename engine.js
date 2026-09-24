@@ -78,7 +78,7 @@ function buildSites(stores) {
     if (s.siteKey && byKey.has(s.siteKey)) site = byKey.get(s.siteKey);
     if (!site && !s.siteKey) site = sites.find(x => !x.key && haversineM(x, s) < 40) || null;
     if (!site) {
-      site = { idx: sites.length, key: s.siteKey || null, lat: s.lat, lng: s.lng, name: s.siteName || s.name, stores: [] };
+      site = { idx: sites.length, key: s.siteKey || null, lat: s.lat, lng: s.lng, name: s.siteName || s.name, addr: s.addr || '', stores: [] };   // addr 跟着点走：地图按钮的终点要「店名 + 地址」（0924）
       sites.push(site);
       if (s.siteKey) byKey.set(s.siteKey, site);
     }
@@ -351,7 +351,7 @@ export function solve(problem, travel, P, heavyLast) {
     const last = visits[visits.length - 1];
     const part = { store: st.shop.id, groups: gids };
     if (last && last.siteIdx === st.site) last.parts.push(part);
-    else visits.push({ siteIdx: st.site, site: { lat: sites[st.site].lat, lng: sites[st.site].lng, name: sites[st.site].name }, parts: [part] });
+    else visits.push({ siteIdx: st.site, site: { lat: sites[st.site].lat, lng: sites[st.site].lng, name: sites[st.site].name, addr: sites[st.site].addr || '' }, parts: [part] });
   }
 
   const result = {

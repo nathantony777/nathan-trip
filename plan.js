@@ -143,12 +143,12 @@ export function buildProblem(state, data, T, { backupsOn = new Set(), day = null
     let o;
     if (id.startsWith('place:')) {
       const p = state.places.find(x => 'place:' + x.id === id);
-      o = { id, name: p.name, lat: p.lat, lng: p.lng, open: placeWindow(p, D.date, isPH).open, base: (Number(p.dur) || 0) + (Number(p.walk) || 0), queue: 0 };   // walk = 从站走过去再走回来；窗口的算法只有 days.js 一份
+      o = { id, name: p.name, addr: p.addr || '', lat: p.lat, lng: p.lng, open: placeWindow(p, D.date, isPH).open, base: (Number(p.dur) || 0) + (Number(p.walk) || 0), queue: 0 };   // walk = 从站走过去再走回来；窗口的算法只有 days.js 一份
     } else {
       const s = storeData.get(id);
       if (!s) throw new Error(`店 ${id} 不在数据里（数据更新过？）`);
       const q = queueDay && /饼/.test(brandKind.get(s.brand)) ? S.bakeryQueue : 0;
-      o = { id, name: `${s.brand} ${s.name}`, lat: s.lat, lng: s.lng, open: openOn(s.hours, dow, isPH).open, base: S.base, queue: q };
+      o = { id, name: `${s.brand} ${s.name}`, addr: s.addr || '', lat: s.lat, lng: s.lng, open: openOn(s.hours, dow, isPH).open, base: S.base, queue: q };
     }
     problemStores.set(id, o);
     return o;

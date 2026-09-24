@@ -343,9 +343,11 @@ function renderLeftovers() {
 
 function legHTML(leg, copyText) {
   const L = leg.links || {};
-  const btns = [`<a class="btn" href="${esc(L.apple)}">苹果地图</a>`];
-  if (L.google) btns.push(`<button data-act="openApp" data-app="${esc(L.google)}" data-web="${esc(L.googleWeb || '')}">谷歌地图</button>`);
-  if (L.amap) btns.push(`<button data-act="openApp" data-app="${esc(L.amap)}" data-web="${esc(L.amapWeb || '')}">高德地图</button>`);
+  // 主地图排第一：大陆高德、大陆以外谷歌（Nathan 0924 定）；苹果地图放第二当备用
+  const btns = [];
+  if (L.amap) btns.push(`<button class="primary" data-act="openApp" data-app="${esc(L.amap)}" data-web="${esc(L.amapWeb || '')}">高德地图</button>`);
+  if (L.google) btns.push(`<button class="primary" data-act="openApp" data-app="${esc(L.google)}" data-web="${esc(L.googleWeb || '')}">谷歌地图</button>`);
+  btns.push(`<a class="btn" href="${esc(L.apple)}">苹果地图</a>`);
   btns.push(`<button class="quiet" data-act="copy" data-text="${esc(L.copyText || copyText)}">复制地址</button>`);
   return `<div class="leg">${leg.mode === 'est' ? `<span class="flag">${esc(leg.text)}</span>` : esc(leg.text)}<div class="row">${btns.join('')}</div></div>`;
 }
@@ -717,11 +719,22 @@ function renderSpeech() {
   const out = ['<h1>说话</h1>'];
   const aiCap = Number(root.settings.caps.ai) || 0;
   const aiLine = aiReady() ? `AI：${aiName()} · 今天听了 ${usedToday('ai')} 次${aiCap ? `，上限 ${aiCap}` : ''}` : 'AI 还没填钥匙（设置 → AI），先按规则听';
+  // 说话页交代清楚三件事：能说什么（三类，各给一句能点的例子）、按了会发生什么、什么时候才真的加进去
+  //（Nathan 0924 看了说「这个说话的模块看着比较抽象，该交代什么说的不是很清楚」）
+  const EX = R === 'hk'
+    ? ['明天上午去元朗买老婆饼，然后去中环', '10月2日去香港两天，住尖沙咀', '给同事带两盒合桃酥']
+    : ['10月8日去深圳，住福田', '明天上午去人才公园，然后去附近的免税店', '给同事带两盒特产'];
   out.push(`<div class="card">
-    <label class="f">想去哪、哪天去、想吃什么，口语随便说；一句一件事</label>
-    <textarea id="sp-text" placeholder="10月8日我想去深圳人才公园玩，然后去附近的免税店买东西">${esc(pendingDraft ? pendingDraft.text : '')}</textarea>
+    <div class="eyebrow">能说三类话 · 一句一件事</div>
+    <div class="kv"><span class="k">哪天去 / 去几天</span><span class="v">「10月8日去深圳」「国庆去香港三天」</span></div>
+    <div class="kv"><span class="k">去哪、先后顺序</span><span class="v">「上午去人才公园，然后去附近的免税店」</span></div>
+    <div class="kv"><span class="k">买什么、给谁</span><span class="v">「给同事带两盒特产」</span></div>
+    <label class="f" style="margin-top:12px">照着说，或者点一句例子填进去改：</label>
+    <div class="row" style="margin-bottom:8px">${EX.map(t => `<button class="quiet" style="min-height:32px;font-size:13px" data-act="spExample" data-text="${esc(t)}">${esc(t)}</button>`).join('')}</div>
+    <textarea id="sp-text" placeholder="比如：${esc(EX[1])}">${esc(pendingDraft ? pendingDraft.text : '')}</textarea>
     <div class="row" style="margin-top:10px"><button class="primary grow" data-act="listen" ${listening ? 'disabled' : ''}>听懂</button>${R === 'hk' ? '<button data-act="paste">粘贴清单</button>' : ''}</div>
-    <p class="small muted">${esc(aiLine)}${navigator.onLine ? '' : ' · 现在没网，按规则听的；找地方要等联网'}。听懂之后会先给你看理解成什么，你点「对」才会加进去。</p>
+    <p class="small muted">按「听懂」→ 它把这段话拆成【哪天 / 去哪 / 买什么】列给你看 → 你点「对」才会加进行程，不对可以先改。${R === 'hk' ? '「粘贴清单」是把一整份采买清单（一行一样）贴进来。' : ''}</p>
+    <p class="small muted">${esc(aiLine)}${navigator.onLine ? '' : ' · 现在没网，按规则听的；找地方要等联网'}。</p>
   </div>`);
   const hist = state.speech || [];
   if (hist.length) {
@@ -1625,6 +1638,7 @@ document.addEventListener('click', async e => {
       break;
     }
     case 'listen': listen(); break;
+    case 'spExample': { const ta = $('#sp-text'); if (ta) { ta.value = el.dataset.text; ta.focus(); } break; }
     case 'speechOpen': speechOpen(Number(el.dataset.idx)); break;
     case 'speechAgain': { const h = (state.speech || [])[Number(el.dataset.idx)]; closeSheet(); if (h) listen(h.text); break; }
     case 'draftDel': { readDraftEdits(); const d = pendingDraft.draft.days[Number(el.dataset.d)]; if (d) d.entries.splice(Number(el.dataset.i), 1); showDraft(); break; }

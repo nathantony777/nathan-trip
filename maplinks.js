@@ -19,18 +19,26 @@ export function walkFromLeg(leg) {
 
 // a → b 的地图按钮。a / b = { lat, lng, name? }，坐标是这一趟那套（cn = GCJ-02，其余 = WGS-84）
 // opts.walk：true 步行 / false 公交 / 不给 → 直线 < NEAR_M 算步行
+// ★ 终点交给地图的是【店名 + 地址】，不是光秃秃的坐标（Nathan 0924：「要去英记茶庄旺角店，跳转谷歌地图就应该是跳到彌敦道719號D」）。
+//   有地址 → daddr / destination 写「店名 地址」，地图自己认店、标名字；没地址（酒店 / 口岸 / 手动定位的点）→ 还是坐标。
+//   起点永远是坐标（上一站在哪只有我们知道）。
+//   大陆一律高德、大陆以外一律谷歌（Nathan 0924 定）；苹果地图两边都留着当备用。
 export function mapLinks(region, a, b, opts = {}) {
   const near = opts.walk == null ? haversineM(a, b) < NEAR_M : !!opts.walk;
-  const s = `${f6(a.lat)},${f6(a.lng)}`, d = `${f6(b.lat)},${f6(b.lng)}`;
+  const s = `${f6(a.lat)},${f6(a.lng)}`, coordD = `${f6(b.lat)},${f6(b.lng)}`;
+  // 店名里括号那截（「（旗艦零售館/唐餅文化館/烘焙工作坊）」这种）不交给地图：地图按文字找店，多余的字只会把它带偏；复制出来的仍是全名
+  const shortName = String(b.name || '').replace(/[（(][^）)]*[）)]/g, '').replace(/\s+/g, ' ').trim();
+  const destText = b.addr ? `${shortName} ${b.addr}`.trim() : '';
+  const d = destText ? enc(destText) : coordD;
   const apple = `maps://?saddr=${s}&daddr=${d}&dirflg=${near ? 'w' : 'r'}`;
-  const copyText = `${b.name || ''} ${d}`.trim();
+  const copyText = b.addr ? `${b.name || ''} ${b.addr}`.trim() : `${b.name || ''} ${coordD}`.trim();
   if (region === 'cn') {
     // 高德 app：t=1 公交、2 步行；dev=0 = 坐标已经是 GCJ-02，别再换算
     const amap = `iosamap://path?sourceApplication=nathan-trip&slat=${f6(a.lat)}&slon=${f6(a.lng)}&sname=${enc(a.name)}`
-      + `&dlat=${f6(b.lat)}&dlon=${f6(b.lng)}&dname=${enc(b.name)}&dev=0&t=${near ? 2 : 1}`;
+      + `&dlat=${f6(b.lat)}&dlon=${f6(b.lng)}&dname=${enc(destText || b.name)}&dev=0&t=${near ? 2 : 1}`;
     // 没装高德 → 高德网页（经度在前；名字可以不带）
     const from = `${f6(a.lng)},${f6(a.lat)}${a.name ? ',' + enc(a.name) : ''}`;
-    const to = `${f6(b.lng)},${f6(b.lat)}${b.name ? ',' + enc(b.name) : ''}`;
+    const to = `${f6(b.lng)},${f6(b.lat)}${(destText || b.name) ? ',' + enc(destText || b.name) : ''}`;
     const amapWeb = `https://uri.amap.com/navigation?from=${from}&to=${to}&mode=${near ? 'walk' : 'bus'}&src=nathan-trip`;
     return { near, apple, google: null, googleWeb: null, amap, amapWeb, copyText };
   }
