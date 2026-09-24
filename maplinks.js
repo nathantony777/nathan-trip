@@ -22,9 +22,12 @@ export function walkFromLeg(leg) {
 // ★ 终点交给地图的是【店名 + 地址】，不是光秃秃的坐标（Nathan 0924：「要去英记茶庄旺角店，跳转谷歌地图就应该是跳到彌敦道719號D」）。
 //   有地址 → daddr / destination 写「店名 地址」，地图自己认店、标名字；没地址（酒店 / 口岸 / 手动定位的点）→ 还是坐标。
 //   起点永远是坐标（上一站在哪只有我们知道）。
-//   大陆一律高德、大陆以外一律谷歌（Nathan 0924 定）；苹果地图两边都留着当备用。
+//   ★ 两套链接都给（0924 15:5x 改）：Nathan 的规矩是「大陆网络环境用高德，出了大陆的网络环境用谷歌」——按的是【手机此刻的网络】，
+//   不是这一趟去哪；哪个网络由 app.js 探一次谷歌通不通来定，这里只管把两套都算好。苹果地图的链接留着（复制/测试用），按钮不再显示。
+//   高德的 dev：0 = 坐标已经是 GCJ-02（大陆那套）、1 = WGS-84 要它自己换算（香港 / 国外那套）。
 export function mapLinks(region, a, b, opts = {}) {
   const near = opts.walk == null ? haversineM(a, b) < NEAR_M : !!opts.walk;
+  const cn = region === 'cn';
   const s = `${f6(a.lat)},${f6(a.lng)}`, coordD = `${f6(b.lat)},${f6(b.lng)}`;
   // 店名里括号那截（「（旗艦零售館/唐餅文化館/烘焙工作坊）」这种）不交给地图：地图按文字找店，多余的字只会把它带偏；复制出来的仍是全名
   const shortName = String(b.name || '').replace(/[（(][^）)]*[）)]/g, '').replace(/\s+/g, ' ').trim();
@@ -32,22 +35,19 @@ export function mapLinks(region, a, b, opts = {}) {
   const d = destText ? enc(destText) : coordD;
   const apple = `maps://?saddr=${s}&daddr=${d}&dirflg=${near ? 'w' : 'r'}`;
   const copyText = b.addr ? `${b.name || ''} ${b.addr}`.trim() : `${b.name || ''} ${coordD}`.trim();
-  if (region === 'cn') {
-    // 高德 app：t=1 公交、2 步行；dev=0 = 坐标已经是 GCJ-02，别再换算
-    const amap = `iosamap://path?sourceApplication=nathan-trip&slat=${f6(a.lat)}&slon=${f6(a.lng)}&sname=${enc(a.name)}`
-      + `&dlat=${f6(b.lat)}&dlon=${f6(b.lng)}&dname=${enc(destText || b.name)}&dev=0&t=${near ? 2 : 1}`;
-    // 没装高德 → 高德网页（经度在前；名字可以不带）
-    const from = `${f6(a.lng)},${f6(a.lat)}${a.name ? ',' + enc(a.name) : ''}`;
-    const to = `${f6(b.lng)},${f6(b.lat)}${(destText || b.name) ? ',' + enc(destText || b.name) : ''}`;
-    const amapWeb = `https://uri.amap.com/navigation?from=${from}&to=${to}&mode=${near ? 'walk' : 'bus'}&src=nathan-trip`;
-    return { near, apple, google: null, googleWeb: null, amap, amapWeb, copyText };
-  }
-  // hk / abroad：跟香港版（plan.js 旧的 mapLinks）同一套网址
+  // 高德 app：t=1 公交、2 步行
+  const amap = `iosamap://path?sourceApplication=nathan-trip&slat=${f6(a.lat)}&slon=${f6(a.lng)}&sname=${enc(a.name)}`
+    + `&dlat=${f6(b.lat)}&dlon=${f6(b.lng)}&dname=${enc(destText || b.name)}&dev=${cn ? 0 : 1}&t=${near ? 2 : 1}`;
+  // 没装高德 → 高德网页。大陆：按坐标导航（经度在前；名字可以不带）。大陆以外：网页版只认 GCJ-02 坐标，直接按「店名 地址」搜，没地址就搜坐标
+  const from = `${f6(a.lng)},${f6(a.lat)}${a.name ? ',' + enc(a.name) : ''}`;
+  const to = `${f6(b.lng)},${f6(b.lat)}${(destText || b.name) ? ',' + enc(destText || b.name) : ''}`;
+  const amapWeb = cn
+    ? `https://uri.amap.com/navigation?from=${from}&to=${to}&mode=${near ? 'walk' : 'bus'}&src=nathan-trip`
+    : `https://uri.amap.com/search?keyword=${destText ? enc(destText) : coordD}&src=nathan-trip`;
   return {
-    near, apple,
+    near, apple, amap, amapWeb, copyText,
     google: `comgooglemaps://?saddr=${s}&daddr=${d}&directionsmode=${near ? 'walking' : 'transit'}`,
     googleWeb: `https://www.google.com/maps/dir/?api=1&origin=${s}&destination=${d}&travelmode=${near ? 'walking' : 'transit'}`,
-    amap: null, amapWeb: null, copyText,
   };
 }
 

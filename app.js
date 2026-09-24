@@ -342,13 +342,24 @@ function renderLeftovers() {
   return out.join('');
 }
 
+// 哪个地图：Nathan 0924 定「大陆网络环境用高德，出了大陆的网络环境用谷歌」——按【手机此刻的网络】，不按这一趟去哪。
+// 探法：悄悄请求一次谷歌的 204 页（不带 cookie、不读内容），2.5 秒内通了就是「大陆以外的网络」；没探完之前先按这一趟的地区猜。
+// ★ 探到结果如果跟猜的不一样，正在看行程页就重画一次，按钮当场换名字；网络变了（online 事件）再探。
+let googleReachable = null;   // null = 还没探完
+function probeGoogle() {
+  try {
+    const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 2500);
+    fetch('https://www.google.com/generate_204', { mode: 'no-cors', cache: 'no-store', credentials: 'omit', signal: ctl.signal })
+      .then(() => true, () => false)
+      .then(ok => { clearTimeout(timer); const was = googleReachable; googleReachable = ok; if (was !== ok && tab === 'trip') render(); });
+  } catch { googleReachable = false; }
+}
+const useAmap = () => googleReachable === null ? region() === 'cn' : !googleReachable;
 function legHTML(leg, copyText) {
   const L = leg.links || {};
-  // 主地图排第一：大陆高德、大陆以外谷歌（Nathan 0924 定）；苹果地图放第二当备用
   const btns = [];
-  if (L.amap) btns.push(`<button class="primary" data-act="openApp" data-app="${esc(L.amap)}" data-web="${esc(L.amapWeb || '')}">高德地图</button>`);
-  if (L.google) btns.push(`<button class="primary" data-act="openApp" data-app="${esc(L.google)}" data-web="${esc(L.googleWeb || '')}">谷歌地图</button>`);
-  btns.push(`<a class="btn" href="${esc(L.apple)}">苹果地图</a>`);
+  if (useAmap()) btns.push(`<button class="primary" data-act="openApp" data-app="${esc(L.amap)}" data-web="${esc(L.amapWeb || '')}">高德地图</button>`);
+  else btns.push(`<button class="primary" data-act="openApp" data-app="${esc(L.google)}" data-web="${esc(L.googleWeb || '')}">谷歌地图</button>`);
   btns.push(`<button class="quiet" data-act="copy" data-text="${esc(L.copyText || copyText)}">复制地址</button>`);
   return `<div class="leg">${leg.mode === 'est' ? `<span class="flag">${esc(leg.text)}</span>` : esc(leg.text)}<div class="row">${btns.join('')}</div></div>`;
 }
@@ -1725,6 +1736,7 @@ async function boot() {
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
+probeGoogle(); window.addEventListener('online', probeGoogle);   // 地图按钮按此刻网络选高德还是谷歌
 FX.mountFx();   // 先装动效再 boot：boot 第一次 render 出来的卡片也要错落入场
 boot();
 // 收藏文件：选中就读、读完清掉 value（同一个文件再选一次也能触发）
