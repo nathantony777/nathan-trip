@@ -28,6 +28,7 @@ const STATUS_TEXT = { todo: '还没买', bought: '买到', skip: '跳过', enoug
 const PROVIDER_NAME = { google: '谷歌', amap: '高德' };
 
 let data, stations, root, state, plan = null, tab = 'trip', curDay = null, undoSnap = null, toastTimer = null, storeOk = true;
+let lastTab = null;   // 上一次画的是哪页：换页动效只在它变了时触发
 let keys = { google: '', amap: '', ai: '' }, usage = {};
 let planSeq = 0, runPlan;
 let fetching = null;      // 正在取路程：{ abort, done, total }
@@ -172,7 +173,11 @@ function undo() {
 function toast(text, canUndo) {
   clearTimeout(toastTimer);
   $('#toast-root').innerHTML = `<div class="toast"><span class="grow">${esc(text)}</span>${canUndo ? '<button data-act="undo">撤销</button>' : ''}</div>`;
-  toastTimer = setTimeout(() => { $('#toast-root').innerHTML = ''; }, canUndo ? 8000 : 3000);   // 能撤销的留久一点：手机上看到、反应过来要几秒
+  // 能撤销的留久一点：手机上看到、反应过来要几秒。收起时先加 .leaving 淡出 200ms 再清（下一条 toast 来了 clearTimeout 会把两步一起撤）
+  toastTimer = setTimeout(() => {
+    const t = $('#toast-root .toast'); if (t) t.classList.add('leaving');
+    toastTimer = setTimeout(() => { $('#toast-root').innerHTML = ''; }, 200);
+  }, canUndo ? 8000 : 3000);
 }
 
 // ---------------- 地区 / 联网 ----------------
@@ -459,7 +464,7 @@ function inboxRow(e, isDone) {
   const sub = e.addr || String(e.text || '').slice(0, 60);
   return `<div class="list-row"><div class="grow" data-act="inboxOpen" data-id="${esc(e.id)}"><b>${esc(e.name || e.title || '（没有名字）')}</b> ${e.source ? `<span class="tag">${esc(e.source)}</span>` : ''}${isDone ? `<span class="tag">${esc(inboxStatusText(e))}</span>` : ''}
     ${sub ? `<div class="muted small">${esc(sub)}</div>` : ''}</div>
-    ${isDone ? '' : `<button data-act="inboxAdd" data-id="${esc(e.id)}">加到这趟</button><button class="quiet" data-act="inboxDrop" data-id="${esc(e.id)}">不要了</button>`}</div>`;
+    ${isDone ? '' : `<div class="acts"><button data-act="inboxAdd" data-id="${esc(e.id)}">加到这趟</button><button class="quiet" data-act="inboxDrop" data-id="${esc(e.id)}">不要了</button></div>`}</div>`;
 }
 function inboxPasteSheet() {
   sheet(`<h2>粘贴分享文字</h2>
@@ -1145,10 +1150,22 @@ async function testKey() {
 
 // ---------------- 弹出来的表单 ----------------
 
+// 玻璃动效（0924）：关闭时先加 .closing 让它滑下去，200ms 后才清 DOM。系统开了「减少动态效果」就直接清。
+// ★ 关到一半又开新弹层：sheet() 要把关闭定时器和 .closing 都撤掉，不然新弹层会被 200ms 后那次清空抹掉。
+const noMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+let sheetCloseTimer = null;
 function sheet(html) {
-  $('#sheet-root').innerHTML = `<div class="sheet-bg" data-act="closeSheet"></div><div class="sheet"><div class="inner">${html}</div></div>`;
+  clearTimeout(sheetCloseTimer); sheetCloseTimer = null;
+  const r = $('#sheet-root'); r.classList.remove('closing');
+  r.innerHTML = `<div class="sheet-bg" data-act="closeSheet"></div><div class="sheet"><div class="inner">${html}</div></div>`;
 }
-function closeSheet() { $('#sheet-root').innerHTML = ''; }
+function closeSheet() {
+  const r = $('#sheet-root');
+  if (!r.firstChild || sheetCloseTimer) return;            // 没开着 / 已经在关：不重复
+  if (noMotion()) { r.innerHTML = ''; return; }
+  r.classList.add('closing');
+  sheetCloseTimer = setTimeout(() => { sheetCloseTimer = null; r.classList.remove('closing'); r.innerHTML = ''; }, 200);
+}
 
 function brandOptions(sel) {
   return data.brands.map(b => `<option value="${esc(b.brand)}" ${sel === b.brand ? 'selected' : ''}>${esc(b.brand)}</option>`).join('');
@@ -1659,6 +1676,8 @@ function render() {
     if (b.dataset.tab === navTab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   }
   const v = $('#view');
+  // 换页淡入：只在页签真的变了才重加 .in（重排、改数据引起的同页重画不加，不然每次都闪）
+  if (tab !== lastTab) { lastTab = tab; v.classList.remove('in'); void v.offsetWidth; v.classList.add('in'); }
   let html = tab === 'home' ? renderHome() : tab === 'review' ? renderReview() : tab === 'trip' ? renderTrip() : tab === 'places' ? renderPlaces() : tab === 'speech' ? renderSpeech() : renderSettings();
   // 重排要 1–3 秒：这段时间下面还是改之前的路线（刚导入时会显示「0 样 · 0 站」），不说清楚会以为没改上。
   // 按钮照样能点（在店里要连着标几样）。

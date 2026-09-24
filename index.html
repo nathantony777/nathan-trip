@@ -29,6 +29,12 @@
   --glow: 0 3px 10px rgba(10,182,228,.4);
   --mono: "SF Mono", ui-monospace, Menlo, monospace;
   --tab-h: 56px;
+  /* 玻璃（0924 Nathan 看了 v-1136 说「一点都不高级」→ 照 Telegram iOS 的玻璃做，研究见 设计/玻璃动效_研究.md）。
+     只加不改：面是卡色 / 墙色的半透明版，高光是内侧 1px 白线，光泽是 hero 上流过的那道光。
+     ★ 透明度不低于 .72：底下是灰墙，正文对比度才不掉。深色下高光要压到 .08，不然像描了白边。 */
+  --card-glass: rgba(252,253,254,.72); --wall-glass: rgba(237,239,241,.84);
+  --hl: rgba(255,255,255,.65); --hl2: rgba(255,255,255,.35); --sheen: rgba(255,255,255,.45);
+  --toast-glass: rgba(34,38,43,.86);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -38,6 +44,9 @@
     --good-ink: #3FD97E; --bad-ink: #FF7A72; --gold-ink: #FFC24D; --mist: rgba(255,255,255,.06);
     --e1: 0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.28);
     --e2: inset 0 1px 0 rgba(255,255,255,.06), 0 0 0 1px rgba(255,255,255,.08), 0 18px 44px rgba(0,0,0,.5);
+    --card-glass: rgba(23,30,36,.72); --wall-glass: rgba(16,22,27,.84);
+    --hl: rgba(255,255,255,.08); --hl2: rgba(255,255,255,.18); --sheen: rgba(255,255,255,.07);
+    --toast-glass: rgba(34,38,43,.88);
   }
 }
 [hidden] { display: none !important; }
@@ -61,7 +70,7 @@ p { margin: 8px 0; }
 .small { font-size: 12px; line-height: 1.5; }
 .eyebrow { font: 600 10.5px/1.4 var(--mono); letter-spacing: .12em; color: var(--ink3); text-transform: uppercase; }
 .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-.card { background: var(--card); border-radius: 16px; padding: 16px; margin: 12px 0; border: 1px solid var(--line2); box-shadow: var(--e1); }
+.card { background: var(--card-glass); border-radius: 16px; padding: 16px; margin: 12px 0; border: 1px solid var(--line2); box-shadow: inset 0 1px 0 var(--hl), var(--e1); }
 .card.tight { padding: 4px 16px; }
 .card.warn { border-left: 3px solid var(--gold); }
 .card.err { border-left: 3px solid var(--bad); }
@@ -70,11 +79,13 @@ p { margin: 8px 0; }
 .grow { flex: 1 1 auto; min-width: 0; }
 button, .btn {
   font: inherit; font-size: 15px; min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--line2);
-  background: var(--card); color: var(--ink); display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  text-decoration: none; cursor: pointer; box-shadow: var(--e1); transition: opacity .12s, transform .12s, box-shadow .18s;
+  background: var(--card-glass); color: var(--ink); display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  text-decoration: none; cursor: pointer; box-shadow: inset 0 1px 0 var(--hl), var(--e1);
 }
-button:active, .btn:active { transform: scale(.97); }
-button.primary, .btn.primary { background: var(--blue); color: #fff; border-color: transparent; font-weight: 600; box-shadow: var(--glow); }
+button.primary, .btn.primary {
+  background-color: var(--blue); background-image: linear-gradient(180deg, var(--hl2), rgba(255,255,255,0) 55%);
+  color: #fff; border-color: transparent; font-weight: 600; box-shadow: inset 0 1px 0 var(--hl2), var(--glow);
+}
 button.quiet { border-color: transparent; background: var(--mist); box-shadow: none; }
 button.danger { color: var(--bad-ink); }
 button:disabled { opacity: .4; box-shadow: none; }
@@ -109,6 +120,9 @@ button:disabled { opacity: .4; box-shadow: none; }
 .list-row:first-child { border-top: 0; }
 .list-row .grow { cursor: pointer; }
 .list-row b { font-weight: 600; }
+/* 一行右边的按钮组：手机上窄，按钮字不许竖排（0924 收藏箱样张里「加到这趟」竖成了四行） */
+.list-row .acts { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.list-row .acts button, .list-row > button { white-space: nowrap; min-height: 36px; padding: 6px 12px; font-size: 14px; }
 .list-row .idx { font: 600 12.5px/1 var(--mono); color: var(--blue2); background: var(--blue-mist); width: 28px; height: 28px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .list-row button { min-height: 36px; padding: 0 14px; font-size: 13px; box-shadow: none; }
 label.f { display: block; margin: 14px 0 6px; font-size: 12px; color: var(--ink2); }
@@ -122,32 +136,66 @@ select[multiple] { min-height: 120px; }
 input[type=checkbox] { width: 22px; min-height: 22px; height: 22px; -webkit-appearance: checkbox; appearance: checkbox; }
 nav.tabs {
   position: fixed; left: 0; right: 0; bottom: 0; height: calc(var(--tab-h) + env(safe-area-inset-bottom));
-  padding-bottom: env(safe-area-inset-bottom); display: flex; background: var(--glass); border-top: 1px solid var(--line2); z-index: 10;
-  -webkit-backdrop-filter: blur(28px) saturate(1.4); backdrop-filter: blur(28px) saturate(1.4);
+  padding-bottom: env(safe-area-inset-bottom); display: flex; background: var(--card-glass); border-top: 1px solid var(--line2); z-index: 10;
+  box-shadow: inset 0 1px 0 var(--hl), 0 -8px 24px rgba(0,0,0,.04);
+  -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
 }
-nav.tabs button { flex: 1; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--ink3); font-size: 13px; min-height: var(--tab-h); flex-direction: column; gap: 5px; padding: 0; }
+nav.tabs button { flex: 1; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--ink3); font-size: 13px; min-height: var(--tab-h); flex-direction: column; gap: 5px; padding: 0; position: relative; isolation: isolate; }
+/* 选中页签背后一块淡蓝玻璃药丸（Telegram 底栏那种），z-index -1 靠 isolation 关在按钮里 */
+nav.tabs button[aria-current=page]::after { content: ""; position: absolute; inset: 8px 6px; border-radius: 14px; background: var(--blue-mist); box-shadow: inset 0 1px 0 var(--hl); z-index: -1; }
 nav.tabs button::before { content: ""; width: 7px; height: 7px; border-radius: 999px; background: var(--line); transition: background .18s, box-shadow .18s; }
 nav.tabs button[aria-current=page] { color: var(--blue2); font-weight: 600; }
 nav.tabs button[aria-current=page]::before { background: var(--blue); box-shadow: 0 0 8px rgba(10,182,228,.6); }
 nav.tabs button:active { transform: none; }
 .sheet-bg { position: fixed; inset: 0; background: rgba(13,19,23,.32); z-index: 20; }
 .sheet {
-  position: fixed; left: 0; right: 0; bottom: 0; max-height: 92vh; overflow: auto; background: var(--wall0); z-index: 21;
-  border-radius: 24px 24px 0 0; padding: 12px 16px calc(24px + env(safe-area-inset-bottom)); box-shadow: var(--e2);
+  position: fixed; left: 0; right: 0; bottom: 0; max-height: 92vh; overflow: auto; background: var(--wall-glass); z-index: 21;
+  border-radius: 24px 24px 0 0; padding: 12px 16px calc(24px + env(safe-area-inset-bottom)); box-shadow: inset 0 1px 0 var(--hl), var(--e2);
+  -webkit-backdrop-filter: saturate(180%) blur(24px); backdrop-filter: saturate(180%) blur(24px);
 }
+/* 关闭中：closeSheet() 先加 .closing、200ms 后才清 DOM；期间不许再点到里面 */
+#sheet-root.closing { pointer-events: none; }
 .sheet::before { content: ""; display: block; width: 36px; height: 4px; border-radius: 999px; background: var(--line); margin: 0 auto 12px; }
 .sheet .inner { max-width: 640px; margin: 0 auto; }
 .sheet h2 { margin: 4px 0 8px; color: var(--ink); font-size: 20px; font-weight: 600; letter-spacing: 0; }
 .sheet h3 { font-size: 13.5px; color: var(--ink2); margin: 20px 0 6px; }
 .toast {
   position: fixed; left: 16px; right: 16px; bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 12px); z-index: 30;
-  max-width: 600px; margin: 0 auto; background: #22262B; color: #F2F4F6; border-radius: 16px; padding: 10px 10px 10px 16px;
-  display: flex; align-items: center; gap: 10px; box-shadow: var(--e2); font-size: 14px;
+  max-width: 600px; margin: 0 auto; background: var(--toast-glass); color: #F2F4F6; border-radius: 16px; padding: 10px 10px 10px 16px;
+  display: flex; align-items: center; gap: 10px; box-shadow: inset 0 1px 0 rgba(255,255,255,.14), var(--e2); font-size: 14px;
+  -webkit-backdrop-filter: saturate(180%) blur(16px); backdrop-filter: saturate(180%) blur(16px);
 }
 .toast button { background: transparent; color: #fff; border-color: rgba(255,255,255,.3); min-height: 36px; box-shadow: none; }
 .stale { opacity: .45; }
 .busy { position: fixed; top: calc(env(safe-area-inset-top) + 10px); right: 12px; z-index: 15; }
-@media (prefers-reduced-motion: no-preference) { .sheet { animation: up .18s ease-out; } @keyframes up { from { transform: translateY(24px); opacity: .6; } } }
+/* 动效：全部只在系统没开「减少动态效果」时生效。曲线 .32,.72,0,1 是 iOS 弹层那种快出慢停；按钮松手用过冲曲线回弹。 */
+@media (prefers-reduced-motion: no-preference) {
+  button, .btn { transition: opacity .12s, transform .18s cubic-bezier(.34,1.56,.64,1), box-shadow .18s; }
+  button:active, .btn:active { transform: scale(.96); transition-duration: .06s; }
+  nav.tabs button:active { transform: none; }
+  nav.tabs button[aria-current=page]::after { animation: pill-in .25s cubic-bezier(.32,.72,0,1); }
+  @keyframes pill-in { from { opacity: 0; transform: scale(.85); } }
+  .sheet { animation: sheet-up .32s cubic-bezier(.32,.72,0,1); }
+  .sheet-bg { animation: fade-in .25s ease-out; }
+  #sheet-root.closing .sheet { animation: sheet-down .2s cubic-bezier(.4,0,1,1) forwards; }
+  #sheet-root.closing .sheet-bg { animation: fade-out .2s ease-in forwards; }
+  @keyframes sheet-up { from { transform: translateY(100%); } }
+  @keyframes sheet-down { to { transform: translateY(100%); } }
+  @keyframes fade-in { from { opacity: 0; } }
+  @keyframes fade-out { to { opacity: 0; } }
+  .toast { animation: toast-in .32s cubic-bezier(.32,.72,0,1); }
+  .toast.leaving { animation: toast-out .2s ease-in forwards; }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(16px); } }
+  @keyframes toast-out { to { opacity: 0; transform: translateY(8px); } }
+  /* 换页：render() 只在页签变了才重加 .in（同页重画不加，不然每次重排都闪一下） */
+  #view.in { animation: view-in .28s cubic-bezier(.32,.72,0,1); }
+  @keyframes view-in { from { opacity: 0; transform: translateY(6px); } }
+  /* hero 上一道很淡的光缓慢流过，10 秒一圈 */
+  .hero::after { content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+    background: linear-gradient(115deg, rgba(255,255,255,0) 40%, var(--sheen) 50%, rgba(255,255,255,0) 60%); background-size: 250% 100%;
+    animation: sheen 10s linear infinite; }
+  @keyframes sheen { from { background-position: 120% 0; } to { background-position: -130% 0; } }
+}
 .chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 16px 8px; margin: 0 -16px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
 .chips::-webkit-scrollbar { display: none; }
 .chip { flex: 0 0 auto; min-height: 38px; padding: 0 14px; white-space: nowrap; font-size: 14px; }
@@ -159,7 +207,7 @@ nav.tabs button:active { transform: none; }
 .row > input.grow, .row > select.grow { width: auto; flex: 1 1 9em; }
 .row > input.de-dur { width: 6em; }
 /* 首页：当前这趟的大卡 + 三个数 */
-.hero { padding: 18px 16px 16px; }
+.hero { padding: 18px 16px 16px; position: relative; overflow: hidden; }
 .hero .title { font-size: 22px; font-weight: 600; line-height: 1.25; margin: 4px 0 2px; }
 .hero .sub { color: var(--ink2); font-size: 13px; }
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 16px 0 14px; }
