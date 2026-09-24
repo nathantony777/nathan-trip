@@ -1,0 +1,136 @@
+// 地图按钮 + 从链接 / 文字里读坐标（规格 14.2）。纯函数，node 能直接测（测试/maplinks.test.mjs）。
+// 三个地区两套坐标：
+//   hk 香港、abroad 国外 —— WGS-84；按钮给 苹果 + 谷歌；贴高德链接拒收（高德在这些地方的坐标对不上）
+//   cn 中国大陆         —— GCJ-02；按钮给 高德 + 苹果（大陆的苹果地图本来就是 GCJ-02）；不给谷歌、贴谷歌链接拒收
+// ★ 高德的链接一律「经度在前」（position=lng,lat），谷歌 / 苹果是「纬度在前」—— 最容易写反的地方。
+
+import { haversineM, inChina, NEAR_M } from './geo.js';
+
+// ★ 步行门槛只有一个数：geo.js 的 NEAR_M（600 米，路程那边同一条线）。0923 之前这里是 400，
+//   400～600 米之间排程说「步行」、按钮却开公交 —— 两个数一定会岔开，所以按钮优先听排程的（opts.walk）。
+const f6 = x => Number(x).toFixed(6);
+const enc = s => encodeURIComponent(s || '');
+
+// 按钮走步行还是公交：排程说了算（leg.mode）；排程没说（估的）→ null，按距离
+export function walkFromLeg(leg) {
+  const m = leg && leg.mode;
+  return m === 'walk' ? true : m === 'transit' || m === 'mtr' || m === 'bus' ? false : null;
+}
+
+// a → b 的地图按钮。a / b = { lat, lng, name? }，坐标是这一趟那套（cn = GCJ-02，其余 = WGS-84）
+// opts.walk：true 步行 / false 公交 / 不给 → 直线 < NEAR_M 算步行
+export function mapLinks(region, a, b, opts = {}) {
+  const near = opts.walk == null ? haversineM(a, b) < NEAR_M : !!opts.walk;
+  const s = `${f6(a.lat)},${f6(a.lng)}`, d = `${f6(b.lat)},${f6(b.lng)}`;
+  const apple = `maps://?saddr=${s}&daddr=${d}&dirflg=${near ? 'w' : 'r'}`;
+  const copyText = `${b.name || ''} ${d}`.trim();
+  if (region === 'cn') {
+    // 高德 app：t=1 公交、2 步行；dev=0 = 坐标已经是 GCJ-02，别再换算
+    const amap = `iosamap://path?sourceApplication=nathan-trip&slat=${f6(a.lat)}&slon=${f6(a.lng)}&sname=${enc(a.name)}`
+      + `&dlat=${f6(b.lat)}&dlon=${f6(b.lng)}&dname=${enc(b.name)}&dev=0&t=${near ? 2 : 1}`;
+    // 没装高德 → 高德网页（经度在前；名字可以不带）
+    const from = `${f6(a.lng)},${f6(a.lat)}${a.name ? ',' + enc(a.name) : ''}`;
+    const to = `${f6(b.lng)},${f6(b.lat)}${b.name ? ',' + enc(b.name) : ''}`;
+    const amapWeb = `https://uri.amap.com/navigation?from=${from}&to=${to}&mode=${near ? 'walk' : 'bus'}&src=nathan-trip`;
+    return { near, apple, google: null, googleWeb: null, amap, amapWeb, copyText };
+  }
+  // hk / abroad：跟香港版（plan.js 旧的 mapLinks）同一套网址
+  return {
+    near, apple,
+    google: `comgooglemaps://?saddr=${s}&daddr=${d}&directionsmode=${near ? 'walking' : 'transit'}`,
+    googleWeb: `https://www.google.com/maps/dir/?api=1&origin=${s}&destination=${d}&travelmode=${near ? 'walking' : 'transit'}`,
+    amap: null, amapWeb: null, copyText,
+  };
+}
+
+// ---------------- 从一段文字里读坐标 ----------------
+// 返回 { lat, lng, sys } | { error:'给人看的话' } | null（什么都没认出）
+
+export const LINK_ERRORS = {
+  googleInCn: '谷歌的坐标在大陆会偏几百米，用高德分享或者直接搜',
+  amapOutside: '高德的坐标在香港和国外对不上，用苹果或谷歌地图分享',
+  short: '这是短链接，里面没有坐标；在地图里打开后再分享一次，或者直接搜',
+};
+
+const NUM = '(-?\\d+(?:\\.\\d+)?)';
+// ★ maps.apple/p/ 是不是苹果的短链接没核实过；写上只会多给一句提示，不会读错坐标
+const SHORT = /(?:maps\.app\.goo\.gl|goo\.gl\/|surl\.amap\.com|maps\.apple\/p\/)/i;
+
+function linkKind(s) {
+  if (/(?:google\.[a-z.]+\/maps|maps\.google\.|goo\.gl\/|comgooglemaps:|ditu\.google\.cn)/i.test(s)) return 'google';
+  if (/(?:amap\.com|amapuri:|iosamap:|androidamap:|gaode\.com)/i.test(s)) return 'amap';
+  if (/(?:maps\.apple\.com|maps\.apple\/|(?:^|[^a-z])maps:)/i.test(s)) return 'apple';
+  return null;
+}
+
+function valid(lat, lng) {
+  return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0);
+}
+// 两个数谁是纬度：按「纬度在前」读得通就按它；读不通、反过来读得通就反过来（116.39, 39.90 这种）
+// ★ 大陆：先看哪种读法落在中国境内。新疆的经度不到 90（乌鲁木齐 87.6），「87.61,43.82」两种读法都「读得通」，
+//   只按纬度在前会把它放到北极边上、不报错（高德的坐标拾取器给的就是经度在前）
+function order(first, second, cn) {
+  if (cn) {
+    if (inChina(first, second)) return { lat: first, lng: second };
+    if (inChina(second, first)) return { lat: second, lng: first };
+  }
+  if (valid(first, second)) return { lat: first, lng: second };
+  if (valid(second, first)) return { lat: second, lng: first };
+  return null;
+}
+
+// 谷歌 / 苹果：纬度在前。按准确程度排：谷歌地点页的 !3d!4d → 各种参数 → 谷歌视野中心 @
+function fromGoogleApple(s, cn) {
+  const places = [...s.matchAll(new RegExp(`!3d${NUM}!4d${NUM}`, 'g'))];
+  if (places.length) {
+    const m = places[places.length - 1];
+    const r = order(Number(m[1]), Number(m[2]), cn);
+    if (r) return r;
+  }
+  for (const p of ['coordinate', 'daddr', 'destination', 'q', 'query', 'll', 'sll', 'center']) {
+    const m = s.match(new RegExp(`[?&]${p}=${NUM},\\s*\\+?${NUM}`));
+    if (m) { const r = order(Number(m[1]), Number(m[2]), cn); if (r) return r; }
+  }
+  const m = s.match(new RegExp(`@${NUM},${NUM}`));
+  return m ? order(Number(m[1]), Number(m[2]), cn) : null;
+}
+
+// 高德：经度在前（position=lng,lat、to=lng,lat,名字）；amapuri:// / iosamap:// 是分开的 lat= / lon=
+function fromAmap(s, cn) {
+  for (const p of ['position', 'lnglat', 'to', 'destination']) {
+    const m = s.match(new RegExp(`[?&]${p}=${NUM},\\s*${NUM}`));
+    if (m) { const r = order(Number(m[2]), Number(m[1]), cn); if (r) return r; }
+  }
+  for (const [la, lo] of [['lat', 'lon'], ['lat', 'lng'], ['dlat', 'dlon']]) {
+    const a = s.match(new RegExp(`[?&]${la}=${NUM}`)), b = s.match(new RegExp(`[?&]${lo}=${NUM}`));
+    if (a && b) { const r = order(Number(a[1]), Number(b[1]), cn); if (r) return r; }
+  }
+  return null;
+}
+
+// 直接写的坐标：「39.9075, 116.3914」「116.3914，39.9075」（至少两位小数，逗号隔开）
+function fromPlain(s, cn) {
+  const m = s.match(/(?:^|[^\d.])(-?\d{1,3}\.\d{2,})\s*[,，]\s*(-?\d{1,3}\.\d{2,})(?![\d.])/);
+  return m ? order(Number(m[1]), Number(m[2]), cn) : null;
+}
+
+function decodeSafe(s) {
+  let out = s;
+  try { out = decodeURIComponent(s); } catch { /* 文字里有单独的 % 之类：按原文读 */ }
+  return out.replace(/%2C/gi, ',');
+}
+
+export function coordsFromText(text, region) {
+  const raw = String(text ?? '').trim();
+  if (!raw) return null;
+  const s = decodeSafe(raw).replace(/\s+/g, ' ');
+  const kind = linkKind(s);
+  const cn = region === 'cn';
+  // 地区对不上的先说（短链接在地图里重新分享一次也还是这家的，先说这个才不白跑一趟）
+  if (kind === 'google' && cn) return { error: LINK_ERRORS.googleInCn };
+  if (kind === 'amap' && !cn) return { error: LINK_ERRORS.amapOutside };
+  const hit = (kind === 'amap' ? fromAmap(s, cn) : kind ? fromGoogleApple(s, cn) : null) || fromPlain(s, cn);
+  if (hit) return { lat: hit.lat, lng: hit.lng, sys: cn ? 'gcj02' : 'wgs84' };
+  if (SHORT.test(s)) return { error: LINK_ERRORS.short };
+  return null;
+}

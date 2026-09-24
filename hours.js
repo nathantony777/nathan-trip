@@ -8,6 +8,7 @@ export const DEFAULT_HOURS = [[600, 1200]]; // 没查到营业时间的，按 10
 
 function toMin(s) {
   const m = String(s).match(/(\d{1,2}):(\d{2})/);
+  if (!m) throw new Error(`认不出时间写法：${s}（要写成 10:00 这种）`);   // ★ 原来是 TypeError「reading '1'」，谁也看不懂
   return Number(m[1]) * 60 + Number(m[2]);
 }
 

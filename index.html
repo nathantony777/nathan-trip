@@ -108,14 +108,29 @@ nav.tabs button[aria-current=page] { color: var(--accent); font-weight: 700; }
 .stale { opacity: .45; }
 .busy { position: fixed; top: calc(env(safe-area-inset-top) + 8px); right: 12px; z-index: 15; }
 @media (prefers-reduced-motion: no-preference) { .sheet { animation: up .18s ease-out; } @keyframes up { from { transform: translateY(24px); opacity: .6; } } }
+/* 旅游版：日期条、进度条、小字键值 */
+.chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 8px; margin: 0 -16px; padding-left: 16px; padding-right: 16px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { flex: 0 0 auto; min-height: 40px; padding: 0 14px; border-radius: 99px; white-space: nowrap; }
+.chip[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+.progress { height: 8px; background: var(--muted-soft); border-radius: 99px; overflow: hidden; margin: 8px 0; }
+.progress > div { height: 100%; background: var(--accent); transition: width .2s; }
+h3 { font-size: 1rem; margin: 16px 0 6px; }
+.day-card { padding: 10px 12px; }
+.day-card label.f { margin-top: 8px; }
+/* 一行里的输入框 / 下拉：别占满整行把旁边的按钮挤到下一行（说话页确认表、搜索框） */
+.row > input.grow, .row > select.grow { width: auto; flex: 1 1 9em; }
+.row > input.de-dur { width: 6em; }
 </style>
 </head>
 <body>
 <div class="busy tag" id="busy" hidden>正在排…</div>
 <main id="view"><p class="muted">正在打开…</p></main>
 <nav class="tabs" id="tabs">
-  <button data-tab="today" aria-current="page">今天</button>
-  <button data-tab="list">清单</button>
+  <button data-tab="home">出行</button>
+  <button data-tab="trip" aria-current="page">行程</button>
+  <button data-tab="places">地方</button>
+  <button data-tab="speech">说话</button>
   <button data-tab="settings">设置</button>
 </nav>
 <div id="sheet-root"></div>

@@ -16,12 +16,9 @@ export const TRANSIT_DEFAULTS = {
   coachMinutes: 60,    // 直通巴全程时间官方没写；旧计划记的是 45–60 分钟，取慢的
 };
 
-export function haversineM(a, b) {
-  const R = 6371000, r = Math.PI / 180;
-  const dLa = (b.lat - a.lat) * r, dLo = (b.lng - a.lng) * r;
-  const x = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLo / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(x));
-}
+// 直线距离的正本在 geo.js（旅游版加的，一个公式只存一处）；这里转出去，老的引用不用改
+import { haversineM } from './geo.js';
+export { haversineM };
 
 export function parseHM(s) {
   if (s == null) return null;
