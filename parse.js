@@ -134,6 +134,18 @@ export function parseList(text, data, opts = {}) {
     let line = raw.replace(LEAD, '').replace(LEAD, '').trim();
     if (!line) continue;
     line = fixAlias(line);
+    // ---- 「东西-给谁」（0924 Nathan 的计划一行一样这么写：「安怡 x 2罐-给谁」「无糖奶粉-谁和谁-我来买」）----
+    // 行尾 -xxx（≤8 字、没数字）是给谁（按 和/、 拆成几个人）；再往后的 -yyy 当备注。原来整串「-给谁」都进了名字。
+    let lineWho = [], lineNote = [];
+    {
+      const segs = line.split(/\s*[-－—–]\s*/);
+      const tail = segs.slice(1).filter(Boolean);
+      if (segs.length > 1 && segs[0].trim() && tail.length && tail.every(t => t.length <= 8 && !/\d/.test(t))) {
+        line = segs[0].trim();
+        lineWho = tail[0].split(/[和、&＆,，]/).map(x => x.trim()).filter(Boolean);
+        lineNote = tail.slice(1);
+      }
+    }
 
     // ---- 给谁的标题 ----
     const brandsHere = findBrands(M, line);
@@ -223,10 +235,10 @@ export function parseList(text, data, opts = {}) {
       for (let nm of names) {
         const q = nm.match(/[*×xX＊]\s*(\d+)/);
         const qty = q ? Number(q[1]) : 1;
-        nm = nm.replace(/[*×xX＊]\s*\d+/, '').trim();
-        const item = { id: newId(), name: nm || '（到店再定）', qty, who: [who, ...extraWho].filter(Boolean), note: '',
+        nm = nm.replace(/[*×xX＊]\s*\d+\s*(?:罐|盒|包|瓶|袋|个|支|条|套|份|箱)?/, '').trim();   // 「x 2罐」量词一起吃掉，别留个「罐」在名字里
+        const item = { id: newId(), name: nm || '（到店再定）', qty, who: [...(lineWho.length ? lineWho : [who]), ...extraWho].filter(Boolean), note: '',
           where: null, must, heavy: heavy || /奶粉/.test(nm), backupFor: null, status: 'todo', src: raw.trim() };
-        const noteBits = [...notes];
+        const noteBits = [...notes, ...lineNote];
         // 「川贝杏仁露润喉止咳」：前面对上这家店卖的东西，后面算备注
         if (p.brands.length === 1 && nm) {
           const b = M.brands.find(x => x.brand === p.brands[0]);

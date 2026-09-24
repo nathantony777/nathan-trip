@@ -16,7 +16,8 @@ import { coordsFromText } from './maplinks.js';
 import { hm } from './engine.js';
 import { trailSVG } from './map.js';
 import { parseShare } from './collect.js';
-import * as FX from './fx.js';   // 动效（0924）：错落入场、按压回弹、数字滚动；弹层/提示条/换页仍走 index.html 里的 CSS 过场   // 收藏箱：把分享文字 / 收藏文件认成一条条店（规格 15.13）
+import * as FX from './fx.js';
+import { isPlanDoc, parsePlanDoc } from './planDoc.js';   // 整份计划（标题 + 打勾清单 + 购物行）不走「一句话一件事」   // 动效（0924）：错落入场、按压回弹、数字滚动；弹层/提示条/换页仍走 index.html 里的 CSS 过场   // 收藏箱：把分享文字 / 收藏文件认成一条条店（规格 15.13）
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -278,6 +279,7 @@ function renderTrip() {
       ${R !== 'hk' && dv.estimated ? `<button class="grow" data-act="fetchRoutes">联网取路程</button>` : ''}
       <button class="quiet" data-act="go" data-tab="settings">改这天</button></div>
   </div>`);
+  { const dayObj = Trip.findDay(state, dv.date); if (dayObj && dayObj.note) out.push(`<div class="note">${esc(dayObj.note).replace(/\n/g, '<br>')}</div>`); }   // 这一天的备注（整份计划里的主要任务 / 出发 / 停车）
   if (dv.cannotReturn) { out.push(`<div class="note err">${esc(dv.text)}</div>`); out.push(renderLeftovers()); return out.join(''); }
 
   if (!dv.stops.length) {
@@ -789,8 +791,15 @@ async function listen(text) {
   listening = true;
   const btn = $('[data-act=listen]'); if (btn) { btn.disabled = true; btn.textContent = '正在听…'; }
   const ctx = { today: Trip.localDateStr(), days: state.trip.days.map(d => d.date), region: region(), city: state.trip.city || '', home: state.trip.home ? state.trip.home.name : null };
-  let draft, note, hkList = [];
+  let draft, note, hkList = [], doc = null;
   try {
+    if (isPlanDoc(text)) {
+      // 一整份计划：标题里的日期当「哪天」，购物行走清单读法，其余行原样当那天的备注。不发给 AI（分拣不需要它，而且它会把称呼当地方）
+      doc = parsePlanDoc(text, { today: ctx.today });
+      draft = { trip: {}, days: doc.date ? [{ date: doc.date, entries: [] }] : [], unknown: [], hkList: doc.shopLines };
+      hkList = doc.shopLines;
+      note = `按一份计划读的：${doc.date ? dayLabel(doc.date) : '没写哪天'} · ${doc.shopLines.length} 行要买的 · ${doc.notes.length} 条备注`;
+    } else {
     draft = parseSpeech(text, ctx);
     hkList = draft.hkList || [];
     note = '按规则听的';
@@ -803,14 +812,15 @@ async function listen(text) {
         note = `${aiName()} 听的` + (r.dropped && r.dropped.length ? `（${r.dropped.length} 条对不上原话，降成没听懂）` : '') + (r.truncated ? '（太长，只听了前 4000 字）' : '');
       } catch (e) { note = `AI 没连上（${e.message}），按规则听的`; }
     } else if (aiReady() && !navigator.onLine) note = '现在没网，按规则听的';
+    }
   } catch (e) { alert('没听懂：' + e.message); listening = false; render(); return; }
   listening = false;
   let hkItems = [];
-  if (hkList.length && region() === 'hk') {
+  if (hkList.length && (region() === 'hk' || doc)) {   // 整份计划里的购物行，不是香港也照读（认不出在哪买的进「没看懂」，照样加）
     const r = parseList(hkList.join('\n'), data);
     hkItems = [...r.items, ...r.unknown.map(u => ({ id: u.id, name: u.name, qty: u.qty || 1, who: u.who || [], note: u.note || '', where: null, must: true, heavy: false, backupFor: null, status: 'todo', src: u.src, why: u.why }))];
   }
-  pendingDraft = { text, draft: { trip: draft.trip || {}, days: draft.days || [], unknown: draft.unknown || [] }, note, hkItems };
+  pendingDraft = { text, draft: { trip: draft.trip || {}, days: draft.days || [], unknown: draft.unknown || [] }, note, hkItems, doc };
   render();
   showDraft();
 }
@@ -829,6 +839,14 @@ function showDraft() {
   };
   const nEntries = D.days.reduce((n, d) => n + d.entries.length, 0);
   const out = [`<h2>我听成这样（${nEntries} 个地方${D.unknown.length ? `，${D.unknown.length} 句没听懂` : ''}${pd.hkItems.length ? `，${pd.hkItems.length} 样要买的` : ''}）</h2><p class="small muted">${esc(pd.note)}。改好了点最下面「对，找地方并排进去」。</p>`];
+  if (pd.doc) {
+    const dc = pd.doc;
+    out.push(`<div class="card"><div class="eyebrow">这份计划</div>
+      <div class="kv stack"><span class="k">哪天</span><span class="v">${dc.date ? esc(dayLabel(dc.date)) + (Trip.findDay(state, dc.date) ? '' : '（不在行程里，会加这一天）') : '标题里没写日期，东西按「让算法分」'}</span></div>
+      ${dc.task ? `<div class="kv stack"><span class="k">主要任务</span><span class="v">${esc(dc.task)}</span></div>` : ''}
+      ${dc.notes.length ? `<div class="kv stack"><span class="k">备注（原样记在那天顶上，不当地方）</span><span class="v">${dc.notes.map(esc).join('<br>')}</span></div>` : ''}
+    </div>`);
+  }
   if (D.trip && (D.trip.city || D.trip.name || D.trip.region) && (D.trip.city && D.trip.city !== state.trip.city)) {
     out.push(`<label class="row inset" style="margin:8px 0"><input type="checkbox" id="dr-city"> 把这趟的城市改成「${esc(D.trip.city)}」（现在是「${esc(state.trip.city || '没定')}」）</label>`);
   }
@@ -961,6 +979,11 @@ async function commitDraft() {
   const ok = mutate(() => {
     // 「8号到10号」「玩两天」说到的天，哪怕那天没说去哪也加上（确认页上标过「会加这一天」）
     for (const d of D.days) if (d.date && !Trip.findDay(state, d.date)) { Trip.addDay(state, d.date); newDays.push(d.date); }
+    if (pd.doc && pd.doc.date && Trip.findDay(state, pd.doc.date)) {   // 整份计划：主要任务 + 后勤行当那天的备注，行程页概要卡下面显示
+      const prev = Trip.findDay(state, pd.doc.date).note || '';
+      const add = [pd.doc.task, ...pd.doc.notes].filter(Boolean).join('\n');
+      if (add) Trip.updateDay(state, pd.doc.date, { note: prev && !prev.includes(add) ? prev + '\n' + add : (prev.includes(add) ? prev : add) });
+    }
     for (const { e, hit } of added) {
       if (e.date && !Trip.findDay(state, e.date)) { Trip.addDay(state, e.date); newDays.push(e.date); }
       Trip.addPlace(state, {
