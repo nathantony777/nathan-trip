@@ -17,6 +17,7 @@ import { hm } from './engine.js';
 import { trailSVG } from './map.js';
 import { parseShare } from './collect.js';
 import * as FX from './fx.js';
+import { PRESET } from './预置.js';   // 内置的今天计划：第一次打开自动建好（0926）
 import { isPlanDoc, parsePlanDoc } from './planDoc.js';   // 整份计划（标题 + 打勾清单 + 购物行）不走「一句话一件事」   // 动效（0924）：错落入场、按压回弹、数字滚动；弹层/提示条/换页仍走 index.html 里的 CSS 过场   // 收藏箱：把分享文字 / 收藏文件认成一条条店（规格 15.13）
 
 const $ = s => document.querySelector(s);
@@ -1823,6 +1824,25 @@ function render() {
   if (ps) ps.onchange = () => { const x = PRESETS.find(p => p.id === ps.value); if (x) { $('#ai-base').value = x.base; $('#ai-model').value = x.model; } };
 }
 
+// 内置计划（预置.js）：存档里没记过这个 id 就建一趟、把计划读进去、直接确认，打开就是今天的行程。
+// 失败方式：任一步出错只提示、不标「做过」，下次打开再试；做成了才记 presetsDone。
+async function applyPreset() {
+  if (!PRESET || !storeOk) return;
+  if ((root.settings.presetsDone || []).includes(PRESET.id)) return;
+  if (listening || pendingDraft) return;
+  const doc = parsePlanDoc(PRESET.text, { today: Trip.localDateStr() });
+  const days = doc.date ? [doc.date] : [];
+  if (!mutate(() => { Trips.newTrip(root, { region: PRESET.region || 'hk', name: PRESET.name, days }); }, `内置好了「${PRESET.name}」`)) return;
+  tab = 'trip';
+  try {
+    await listen(PRESET.text);
+    if (!pendingDraft) throw new Error('计划没读出来');
+    await commitDraft();
+    if (pendingDraft) throw new Error('计划没确认上');
+    mutate(() => { root.settings.presetsDone = [...(root.settings.presetsDone || []), PRESET.id]; });
+  } catch (e) { alert('内置的计划没装好：' + e.message + '。去「说话」页点「粘贴清单」自己贴一次也行'); }
+}
+
 async function boot() {
   try {
     data = await fetch('数据/hk.json').then(r => { if (!r.ok) throw new Error('香港数据没下载下来（第一次打开要联网）'); return r.json(); });
@@ -1841,6 +1861,7 @@ async function boot() {
   runPlan = setupPlanner();
   render();
   replan();
+  await applyPreset();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 }

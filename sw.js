@@ -1,10 +1,10 @@
 // 离线缓存（规格第九节）：第一次联网打开后，程序和香港数据都存在手机里，断网照样能用。
 // ★ 改了任何文件就把 VERSION 改一下，手机下次联网打开时换新版（旧缓存删掉）。
-const VERSION = 'v-20260926-0651';
+const VERSION = 'v-20260926-0734';
 const FILES = [
   './', 'index.html', 'app.js', 'worker.js', 'engine.js', 'transit.js', 'hours.js', 'parse.js', 'plan.js',
   'geo.js', 'trip.js', 'tripPlan.js', 'days.js', 'providers.js', 'hoursImport.js', 'maplinks.js', 'matrix.js', 'planDoc.js',   // 旅游版（规格第十四节）
-  'trips.js', 'speech.js', 'ai.js', 'map.js', 'collect.js', 'fx.js',                                                                              // 说话 + 出行的集合（规格第十五节）
+  'trips.js', 'speech.js', 'ai.js', 'map.js', 'collect.js', 'fx.js', '预置.js',                                                                              // 说话 + 出行的集合（规格第十五节）
   '数据/hk.json', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png',
 ];
 
