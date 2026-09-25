@@ -6,13 +6,14 @@
 import { ptKey, wgs2gcj } from './geo.js';
 
 export const REGIONS = {
-  hk:     { name: '香港',     sys: 'wgs84', provider: null },       // 内置数据，不联网
+  hk:     { name: '香港',     sys: 'wgs84', provider: 'osm', bbox: [113.83, 22.15, 114.45, 22.57] },   // bbox = 联网搜只在这个框里找（0926 实测：只给附近点，「Le Labo ifc」搜到了波士顿）
+               // 内置数据 + 开放地图联网搜（不要钥匙；0926 之前是 null = 不联网，他说「香港我不希望是离线的」）
   cn:     { name: '中国大陆', sys: 'gcj02', provider: 'amap' },
   abroad: { name: '国外',     sys: 'wgs84', provider: 'google' },
 };
 export const KINDS = { sight: '景点', food: '吃饭', shop: '买东西', other: '其他' };
 export const DEFAULT_DUR = { sight: 120, food: 60, shop: 40, other: 30 };   // 加进来时「待多久」的默认值（分钟）
-export const DEFAULT_CAPS = { google: 1500, amap: 2500 };                     // 每天联网上限（规格 14.8）
+export const DEFAULT_CAPS = { google: 1500, amap: 2500, osm: 800 };   // osm 是公益服务，自己压着点                     // 每天联网上限（规格 14.8）
 
 // 香港那一天的默认（跟 V1 一样）；别的地区默认 9:00 从酒店出发、21:00 回酒店
 export const HK_DAY = { start: { kind: 'port' }, startTime: 7 * 60 + 15, end: { kind: 'port' }, deadline: 23 * 60 + 30 };

@@ -39,7 +39,8 @@ export function makeProvider(name, opts = {}) {
   };
   if (name === 'google') return googleProvider(env);
   if (name === 'amap') return amapProvider(env);
-  throw new ProviderError('other', `不认识的地图：${name}（只有 google / amap）`);
+  if (name === 'osm') return osmProvider(env);
+  throw new ProviderError('other', `不认识的地图：${name}（只有 google / amap / osm）`);
 }
 
 // ---------------- 两家共用：发一次请求（含报账、限速、重试） ----------------
@@ -258,6 +259,66 @@ function googleProvider(env) {
   }
 
   return { name: 'google', search, matrix, testKey };
+}
+
+// ======================= 开放地图（OpenStreetMap，不要钥匙） =======================
+// 0926 Nathan：「我没有国外的信用卡」（谷歌钥匙必须挂外币卡）+「香港我不希望是离线的」⇒ 香港的联网搜走这家，不要钥匙、不要账号。
+// 搜地方用 Photon（photon.komoot.io，公益服务，返回 OpenStreetMap 数据，CORS 放行）。
+// ★ 0926 试过 Nominatim：香港的中英文地址全回空；Photon 七个地址全查到 ⇒ 用 Photon。
+// ★ 公益服务没有 SLA：请求之间至少隔 1 秒（gapMs），每天上限在 trip.js DEFAULT_CAPS.osm。
+// ★ 只搜地方，不算路程：香港的路程按数据里的港铁站表算（engine.js），matrix 在这里直接报错，免得谁误用。
+const PHOTON = 'https://photon.komoot.io/api/';
+const OSM_GAP_MS = 1000;
+const OSM_FOOD = /^(restaurant|cafe|fast_food|bar|pub|food_court|ice_cream|bakery|tea|coffee_shop|bubble_tea|dessert)$/;
+const OSM_SIGHT_KEYS = /^(tourism|historic|leisure|natural)$/;
+function osmKind(key, value) {
+  if (key === 'shop' && value === 'bakery') return 'food';
+  if (key === 'amenity' && OSM_FOOD.test(value)) return 'food';
+  if (key === 'shop') return 'shop';
+  if (key === 'amenity' && /^(marketplace|pharmacy)$/.test(value)) return 'shop';
+  if (OSM_SIGHT_KEYS.test(key) || (key === 'amenity' && /^(place_of_worship|theatre|arts_centre)$/.test(value))) return 'sight';
+  return 'other';
+}
+function osmHit(f) {
+  const p = (f && f.properties) || {}, c = f && f.geometry && f.geometry.coordinates;
+  const lng = Array.isArray(c) ? +c[0] : NaN, lat = Array.isArray(c) ? +c[1] : NaN;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const street = [p.street, p.housenumber].filter(Boolean).join(' ');
+  const addr = [street, p.district, p.city].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).join(', ');
+  const name = p.name || street || p.district || '';
+  if (!name) return null;
+  return {
+    name, addr, lat, lng, sys: 'wgs84',
+    placeId: p.osm_type && p.osm_id != null ? `${p.osm_type}/${p.osm_id}` : '',
+    kind: osmKind(String(p.osm_key || ''), String(p.osm_value || '')),
+    hours: null, hoursText: '', hoursVerified: false, phone: '', source: 'osm',
+  };
+}
+function osmCheck(res, body) {
+  if (res.ok) {
+    if (!body || !Array.isArray(body.features)) throw new ProviderError('other', '开放地图回的内容认不出（不是 GeoJSON）');
+    return { data: body };
+  }
+  if (res.status === 429) return { retry: 'slow', text: '开放地图说请求太频繁，等了 1 秒再试还是不行；过一会儿再搜' };
+  if (res.status >= 500) return { retry: 'net', text: `开放地图那边暂时出错（HTTP ${res.status}），隔一秒重试过一次还是不行` };
+  throw new ProviderError('other', `开放地图回了错误（HTTP ${res.status}）`);
+}
+function osmProvider(env) {
+  const send = makeSender(env, { label: '开放地图', gapMs: OSM_GAP_MS });
+  async function search(query, { near, bbox } = {}) {
+    const q = String(query ?? '').trim();
+    if (!q) return [];
+    const params = { q, limit: String(MAX_HITS) };
+    // ★ lat/lon 只是「偏向附近」，不是限定；要限定在香港得用 bbox（西南经、纬，东北经、纬）
+    if (Array.isArray(bbox) && bbox.length === 4 && bbox.every(Number.isFinite)) params.bbox = bbox.join(',');
+    if (near && near.lat != null && near.lng != null && Number.isFinite(+near.lat) && Number.isFinite(+near.lng)) { params.lat = String(+near.lat); params.lon = String(+near.lng); }
+    const data = await send({ url: `${PHOTON}?${qs(params)}`, units: 1, check: osmCheck });
+    // 认得出是店 / 吃的 / 景点的排前面，公交站、地块这种「其他」排后面（顺序不变的稳定排序）
+    return data.features.map(osmHit).filter(Boolean).map((h, i) => [h.kind === 'other' ? 1 : 0, i, h]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]).slice(0, MAX_HITS);
+  }
+  async function matrix() { throw new ProviderError('other', '开放地图这家只搜地方、不算路程（香港按港铁站表算）'); }
+  async function testKey() { return { ok: true, text: '开放地图不用钥匙，直接能搜' }; }
+  return { name: 'osm', search, matrix, testKey };
 }
 
 // ======================= 高德 =======================

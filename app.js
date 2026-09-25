@@ -27,7 +27,7 @@ const fromHM = s => { const m = String(s || '').match(/^(\d{1,2}):(\d{2})/); ret
 const fmtGot = iso => { const d = new Date(iso || ''); return isNaN(d) ? '' : `${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const nowMin = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
 const STATUS_TEXT = { todo: '还没买', bought: '买到', skip: '跳过', enough: '够了', notEnough: '没买够' };
-const PROVIDER_NAME = { google: '谷歌', amap: '高德' };
+const PROVIDER_NAME = { google: '谷歌', amap: '高德', osm: '开放地图' };   // osm 不要钥匙（香港用）
 
 let data, stations, root, state, plan = null, tab = 'trip', curDay = null, undoSnap = null, toastTimer = null, storeOk = true;
 let lastTab = null;   // 上一次画的是哪页：换页动效只在它变了时触发
@@ -185,14 +185,17 @@ function toast(text, canUndo, isHTML) {   // isHTML：text 已经是转义好的
 // ---------------- 地区 / 联网 ----------------
 
 const region = () => Trip.regionOf(state);
-const providerName = () => Trip.REGIONS[region()].provider;     // null = 香港（内置数据）
-const hasKey = () => { const p = providerName(); return !!(p && keys[p]); };
+const providerName = () => Trip.REGIONS[region()].provider;     // 香港 = osm（开放地图，不要钥匙）
+const HK_CENTER = { lat: 22.30, lng: 114.17 };   // 开放地图是全世界一张图，香港没给参照点就按这儿附近找，不然「彩虹」会搜到别国去
+const regionNear = near => near || (region() === 'hk' ? HK_CENTER : null);
+const needsKey = p => !!p && p !== 'osm';
+const hasKey = () => { const p = providerName(); return !!p && (!needsKey(p) || !!keys[p]); };
 function makeProv(p0) {
   const p = p0 || providerName();
-  if (!p) throw new Error('香港的行程用内置数据，不用联网');
-  if (!keys[p]) throw new Error(`还没填${PROVIDER_NAME[p]}的钥匙（设置 → 联网）`);
+  if (!p) throw new Error('这个地区没有联网的地图');
+  if (needsKey(p) && !keys[p]) throw new Error(`还没填${PROVIDER_NAME[p]}的钥匙（设置 → 联网）`);
   const spend = MX.makeSpender({ provider: p, cap: Number(root.settings.caps[p]) || 0, usage, save: saveUsage });
-  return makeProvider(p, { key: keys[p], spend });
+  return makeProvider(p, { key: keys[p] || '', spend });
 }
 const usedToday = p => (usage[p] && usage[p].date === Trip.localDateStr()) ? usage[p].units : 0;
 // AI（把口语听成行程，规格 15.4）：地址 / 模型名在 root.settings.ai，钥匙在 keys.ai；本地模型可以不要钥匙
@@ -400,10 +403,10 @@ function itemRowToday(it, part) {
 function renderPlaces() {
   const out = ['<h1>地方</h1>'];
   const R = region();
-  if (R !== 'hk') {
+  {   // 0926 起香港也能联网搜（开放地图，不要钥匙）；内置数据里没有的店在这里搜
     out.push(`<div class="card">
-      <label class="f">联网搜（${PROVIDER_NAME[providerName()]}）：名字、地址都行${state.trip.city ? `，在「${esc(state.trip.city)}」附近找` : ''}</label>
-      <div class="row"><input id="q" class="grow" placeholder="比如：浅草寺、一兰拉面 新宿" ${hasKey() ? '' : 'disabled'}><button class="primary" data-act="search" ${hasKey() ? '' : 'disabled'}>搜</button></div>
+      <label class="f">联网搜（${PROVIDER_NAME[providerName()]}${R === 'hk' ? '，不用钥匙' : ''}）：名字、地址都行${state.trip.city ? `，在「${esc(state.trip.city)}」附近找` : ''}</label>
+      <div class="row"><input id="q" class="grow" placeholder="${R === 'hk' ? '比如：Le Labo ifc、城南道20C' : '比如：浅草寺、一兰拉面 新宿'}" ${hasKey() ? '' : 'disabled'}><button class="primary" data-act="search" ${hasKey() ? '' : 'disabled'}>搜</button></div>
       ${hasKey() ? '<p class="small muted">按一次搜一次，每次算 1 次联网。</p>' : `<p class="small flag">要先填${PROVIDER_NAME[providerName()]}的钥匙：<button class="quiet sm" data-act="go" data-tab="settings">去设置</button></p>`}
     </div>`);
   }
@@ -537,10 +540,10 @@ async function doSearch() {
   if (!q) { alert('先写要搜什么'); return; }
   let prov;
   try { prov = makeProv(); } catch (e) { alert(e.message); return; }
-  const near = state.trip.home || state.places.find(p => p.status === 'todo') || null;
+  const near = regionNear(state.trip.home || state.places.find(p => p.status === 'todo') || null);
   const btn = $('[data-act=search]'); if (btn) { btn.disabled = true; btn.textContent = '正在搜…'; }
   try {
-    const hits = await prov.search(q, { near: near ? { lat: near.lat, lng: near.lng } : undefined, city: state.trip.city || undefined });
+    const hits = await prov.search(q, { near: near ? { lat: near.lat, lng: near.lng } : undefined, bbox: Trip.REGIONS[region()].bbox, city: state.trip.city || undefined });
     pendingHits = hits;
     sheet(`<h2>搜「${esc(q)}」</h2>${hits.length ? '' : '<p class="muted">没搜到。换个写法，或者加上城市名。</p>'}
       <div class="card" style="margin:0">${hits.map((h, i) => `<div class="list-row"><div class="grow"><b>${esc(h.name)}</b> <span class="tag">${esc(Trip.KINDS[h.kind] || '其他')}</span>
@@ -712,7 +715,7 @@ function newTripSheet() {
     <label class="f">说一句就行，比如「10月8日去深圳」「国庆去香港三天」；什么都不说就只选地区</label>
     <textarea id="nt-text" style="min-height:80px" placeholder="10月8日去深圳"></textarea>
     <label class="f">去哪个地区（句子里说了城市会自动判断）</label>
-    <select id="nt-region">${Object.entries(Trip.REGIONS).map(([k, v]) => `<option value="${k}">${esc(v.name)}${k === 'hk' ? '（内置数据，不联网）' : `（联网用${PROVIDER_NAME[v.provider]}）`}</option>`).join('')}</select>
+    <select id="nt-region">${Object.entries(Trip.REGIONS).map(([k, v]) => `<option value="${k}">${esc(v.name)}${k === 'hk' ? '（内置数据 + 开放地图联网搜，不用钥匙）' : `（联网用${PROVIDER_NAME[v.provider]}）`}</option>`).join('')}</select>
     <div class="row" style="margin-top:16px"><button class="primary grow" data-act="newTrip">建这趟</button><button class="quiet" data-act="closeSheet">关掉</button></div>`);
 }
 
@@ -896,7 +899,7 @@ function showDraft() {
   }
   const willSearch = R === 'hk' ? 0 : D.days.reduce((n, d) => n + d.entries.filter(e => e.ref !== 'home').length + d.entries.filter(e => e.near && e.near !== 'prev').length, 0);   // 每条 1 次，「A 附近的」先搜 A 再 1 次；回酒店那条不搜
   const canSearch = R === 'hk' || hasKey();
-  out.push(`<p class="small muted">${R === 'hk' ? '香港不联网：牌子变成要买的东西、说到港铁站的按站算，其余要去「地方」页手动加。' : canSearch ? `要联网搜 ${willSearch} 次（${PROVIDER_NAME[providerName()]}，今天已用 ${usedToday(providerName())}）。每个地方默认取搜到的第 1 家，排进去以后在「地方」页能换。` : `<span class="flag">还没填${PROVIDER_NAME[providerName()]}的钥匙，找不了地方：先去设置填，或者先点「对」记下来、之后再找。</span>`}</p>
+  out.push(`<p class="small muted">${R === 'hk' ? `香港：认得的牌子变成要买的东西、说到港铁站的按站算，其余联网搜（开放地图，不用钥匙，今天已用 ${usedToday('osm')}）。` : canSearch ? `要联网搜 ${willSearch} 次（${PROVIDER_NAME[providerName()]}，今天已用 ${usedToday(providerName())}）。每个地方默认取搜到的第 1 家，排进去以后在「地方」页能换。` : `<span class="flag">还没填${PROVIDER_NAME[providerName()]}的钥匙，找不了地方：先去设置填，或者先点「对」记下来、之后再找。</span>`}</p>
     <div class="row" style="margin-top:12px"><button class="primary grow" data-act="draftCommit" ${listening ? 'disabled' : ''}>对，找地方并排进去</button><button class="quiet" data-act="closeSheet">先不加</button></div>`);
   sheet(out.join(''));
 }
@@ -925,7 +928,7 @@ function readDraftEdits() {
   const c = $('#dr-city'); pd.applyCity = !!(c && c.checked);
 }
 
-// 香港不联网（规格 15.6 第 2 步）：牌子 → 要买的东西；说到港铁站 → 站附近的地方；其余没找到
+// 香港本地能解决的（规格 15.6 第 2 步）：牌子 → 要买的东西；说到港铁站 → 站附近的地方；其余回 why，调用方 0926 起接着联网搜（开放地图）
 function hkResolve(e, prevHit) {
   const brand = data.brands.find(b => e.name.includes(b.brand));
   if (brand) {
@@ -936,7 +939,7 @@ function hkResolve(e, prevHit) {
   const st = stations.find(s => (nearName || e.name).includes(s.name)) || (nearName ? stations.find(s => e.name.includes(s.name)) : null);
   if (st) return { hit: { name: e.name, addr: '', lat: st.lat, lng: st.lng, sys: 'wgs84', source: 'station', how: `在${st.name}站附近（说话）`, walk: 10 } };
   if (e.near === 'prev' && prevHit) return { hit: { name: e.name, addr: '', lat: prevHit.lat, lng: prevHit.lng, sys: 'wgs84', source: 'station', how: '上一处附近（说话）', walk: 10 } };
-  return { why: '香港版不联网找地方：去「地方」页手动加（定位 / 选港铁站）' };
+  return { why: '不是认得的牌子、也没说港铁站' };   // 0926 起调用方接着联网搜（开放地图），这句只在联网也没搜到时才会露出来
 }
 
 // 「对」→ 逐条找地方 → 一次写进 state → 重排（规格 15.6 第 2–4 步）。三道守恒的第二道在这：条数 = 加进去的 + 没找到的 + 酒店
@@ -948,18 +951,18 @@ async function commitDraft() {
   const homeRefs = entries.filter(e => e.ref === 'home');   // 「回酒店」「回家」：记下来，不搜不加（行程本来就从酒店 / 口岸出发回去）
   const stays = entries.filter(e => e.kind === 'stay' && e.ref !== 'home'), rest = entries.filter(e => e.kind !== 'stay' && e.ref !== 'home');
   let prov = null, provErr = '';
-  if (R !== 'hk' && entries.length) { try { prov = makeProv(); } catch (e) { provErr = e.message; } }
+  if (entries.length) { try { prov = makeProv(); } catch (e) { provErr = e.message; } }   // 香港 0926 起也联网（开放地图）
   listening = true;
   const btn = $('[data-act=draftCommit]'); if (btn) btn.disabled = true;
   const added = [], notFound = [], items = [...pd.hkItems];
   let prevHit = null, stop = null, i = 0;
-  const search = async (q, near) => prov.search(q, { near: near ? { lat: near.lat, lng: near.lng } : undefined, city: state.trip.city || undefined });
+  const search = async (q, near) => prov.search(q, { near: near ? { lat: near.lat, lng: near.lng } : undefined, bbox: Trip.REGIONS[R].bbox, city: state.trip.city || undefined });
   for (const e of rest) {
     i++; if (btn) btn.textContent = `找地方 ${i}/${rest.length}…`;
     let hit = null, why = null;
     if (stop) why = stop;
     else if (!e.name) why = '没有地方名';
-    else if (R === 'hk') { const r = hkResolve(e, prevHit); if (r.item) { items.push(r.item); continue; } hit = r.hit || null; why = r.why || null; }
+    else if (R === 'hk' && (() => { const r = hkResolve(e, prevHit); if (r.item) { items.push(r.item); return true; } if (r.hit) { hit = r.hit; return true; } return false; })()) { if (!hit) continue; }   // 认得的牌子 / 港铁站先本地解决；都不是 → 往下联网搜
     else if (!prov) why = provErr;
     else {
       try {
@@ -967,6 +970,7 @@ async function commitDraft() {
         if (e.near === 'prev') near = prevHit;
         else if (e.near) { const nh = await search(e.near, null); if (nh.length) near = nh[0]; }
         if (!near && state.trip.home) near = state.trip.home;
+        near = regionNear(near);
         const hits = await search(e.name, near);
         if (hits.length) hit = { ...hits[0], others: hits.length - 1 }; else why = '联网没搜到，换个写法或加上城市名再说一遍';
       } catch (err) { why = err.message; if (err.kind === 'cap' || err.kind === 'key' || err.kind === 'quota') stop = err.message; }
@@ -1091,7 +1095,7 @@ function renderSettings() {
   if (state) out.push(`<h2>行程</h2><div class="card">
     <label class="f">这趟叫什么</label><input id="t-name" value="${esc(state.trip.name || '')}">
     <label class="f">去哪个地区（决定用哪家地图、哪套坐标）</label>
-    <select id="t-region">${Object.entries(Trip.REGIONS).map(([k, v]) => `<option value="${k}" ${k === R ? 'selected' : ''}>${esc(v.name)}${k === 'hk' ? '（内置数据，不联网）' : `（联网用${PROVIDER_NAME[v.provider]}）`}</option>`).join('')}</select>
+    <select id="t-region">${Object.entries(Trip.REGIONS).map(([k, v]) => `<option value="${k}" ${k === R ? 'selected' : ''}>${esc(v.name)}${k === 'hk' ? '（内置数据 + 开放地图联网搜，不用钥匙）' : `（联网用${PROVIDER_NAME[v.provider]}）`}</option>`).join('')}</select>
     ${R !== 'hk' ? `<label class="f">城市（联网搜的时候在这附近找）</label><input id="t-city" value="${esc(state.trip.city || '')}" placeholder="比如：东京 / 成都">` : ''}
     <label class="f">酒店（每天默认从这出发、回这）</label>
     <div class="row"><span class="grow small">${home ? `${esc(home.name)}${home.addr ? ' · ' + esc(home.addr) : ''}` : '还没定'}</span><button data-act="homeSheet">${home ? '换' : '定酒店'}</button>${home ? '<button class="quiet danger" data-act="homeClear">清掉</button>' : ''}</div>
@@ -1109,7 +1113,11 @@ function renderSettings() {
     <button class="primary big" style="margin-top:14px" data-act="saveSettings">保存并重排</button>
   </div>`);
   if (!state) for (const q of ['amap', 'google']) out.push(keyOnlyHTML(q));   // 没有趟：两家的钥匙都能填、能试
-  if (state && p) {
+  if (state && p === 'osm') {
+    out.push(`<h2>联网（开放地图）</h2><div class="card"><p class="small muted">香港的地方用开放地图（OpenStreetMap）搜，不用钥匙、不用账号；今天搜了 ${usedToday('osm')} 次。路程按内置的港铁站表算，不联网。</p>
+      <label class="f">每天最多联网多少次（0 = 不封顶）</label><input type="number" inputmode="numeric" id="k-cap" value="${Number(root.settings.caps.osm) || 0}"></div>`);
+  }
+  if (state && p && p !== 'osm') {
     const st = MX.matrixStats(state, null);
     const cap = Number(root.settings.caps[p]) || 0;
     const masked = keys[p] ? `已存（末四位 ${esc(keys[p].slice(-4))}）` : '还没填';
@@ -1365,7 +1373,7 @@ function editPlace(id, pre) {
   if (!p) return;
   if (isNew && pre) { p.name = pre.name || ''; p.note = pre.note || ''; }
   const fromInbox = isNew && pre ? `<p class="small muted">从收藏箱来的：位置要你定（定位 / 贴地图链接 / 选站）${pre.link ? ` · <a href="${esc(pre.link)}" target="_blank" rel="noopener">打开原帖</a>` : ''}</p>
-    ${R !== 'hk' && hasKey() ? `<div class="row"><button class="grow" data-act="inboxSearch" data-q="${esc(p.name)}">联网搜这个名字</button></div>` : ''}` : '';
+    ${hasKey() ? `<div class="row"><button class="grow" data-act="inboxSearch" data-q="${esc(p.name)}">联网搜这个名字</button></div>` : ''}` : '';
   const linkHint = R === 'cn' ? '贴高德 / 苹果地图的分享链接，或直接写坐标（谷歌的坐标在大陆会偏几百米，不收）' : '贴谷歌 / 苹果地图的分享链接，或直接写坐标';
   sheet(`<h2>${isNew ? '加一个地方' : '改这个地方'}</h2>${fromInbox}
     <label class="f">叫什么</label><input id="p-name" value="${esc(p.name)}" placeholder="比如：吃午饭、朋友家取货">
@@ -1417,7 +1425,7 @@ function homeSheet() {
   const R = region();
   sheet(`<h2>定酒店</h2>
     <p class="small muted">每天默认从这出发、回这。每一天也能单独改。</p>
-    ${R !== 'hk' && hasKey() ? `<label class="f">联网搜（算 1 次）</label><div class="row"><input id="h-q" class="grow" placeholder="酒店名字"><button data-act="homeSearch">搜</button></div><div id="h-hits"></div>` : ''}
+    ${hasKey() ? `<label class="f">联网搜（算 1 次）</label><div class="row"><input id="h-q" class="grow" placeholder="酒店名字"><button data-act="homeSearch">搜</button></div><div id="h-hits"></div>` : ''}
     <button class="big" style="margin-top:10px" data-act="homeGPS">用我现在的位置</button>
     <label class="f">或者：贴地图链接 / 直接写坐标</label><textarea id="h-link" style="min-height:60px"></textarea>
     <label class="f">叫什么</label><input id="h-name" value="${esc(state.trip.home ? state.trip.home.name : '酒店')}">
@@ -1559,7 +1567,7 @@ document.addEventListener('click', async e => {
         lat = s.lat; lng = s.lng; how = `在${s.name}站附近${w ? `，走路约 ${w} 分钟` : ''}`;
         walk = w * 2; source = 'station';
       } else if (how !== (old ? old.how || '' : '') && /定位/.test(how)) source = 'gps';
-      if (lat == null) { alert('还没有位置：用定位、贴链接' + (region() === 'hk' ? '、或者选一个站' : '、或者去「地方」页联网搜')); break; }
+      if (lat == null) { alert('还没有位置：用定位、贴链接' + (region() === 'hk' ? '、选一个站、或者去「地方」页联网搜' : '、或者去「地方」页联网搜')); break; }
       const day = $('#p-day').value || null, at = fromHM($('#p-at').value);
       if (at != null && !day) { alert('定了开始时刻，就要选是哪一天'); break; }
       const patch = {
@@ -1653,7 +1661,8 @@ document.addEventListener('click', async e => {
       let prov; try { prov = makeProv(); } catch (err) { alert(err.message); break; }
       el.disabled = true; el.textContent = '正在搜…';
       try {
-        const hits = await prov.search(q, { city: state.trip.city || undefined });
+        const n0 = regionNear(null);
+        const hits = await prov.search(q, { near: n0 ? { lat: n0.lat, lng: n0.lng } : undefined, bbox: Trip.REGIONS[region()].bbox, city: state.trip.city || undefined });
         pendingHits = hits;
         $('#h-hits').innerHTML = hits.length ? `<div class="card" style="margin:8px 0">${hits.map((h, i) => `<div class="list-row"><div class="grow"><b>${esc(h.name)}</b><div class="muted small">${esc(h.addr || '')}</div></div><button data-act="homePick" data-idx="${i}">就这家</button></div>`).join('')}</div>` : '<p class="muted small">没搜到</p>';
       } catch (err) { alert(err.message); }
