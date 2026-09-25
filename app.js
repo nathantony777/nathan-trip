@@ -1828,9 +1828,16 @@ function render() {
 // 失败方式：任一步出错只提示、不标「做过」，下次打开再试；做成了才记 presetsDone。
 async function applyPreset() {
   if (!PRESET || !storeOk) return;
-  if ((root.settings.presetsDone || []).includes(PRESET.id)) return;
-  if (listening || pendingDraft) return;
   const doc = parsePlanDoc(PRESET.text, { today: Trip.localDateStr() });
+  // 已经装过：只看出发时间有没有改（他在路上报位置、我改 PRESET.startTime 重发，打开就按新时间重排）
+  const rememberStart = () => { root.settings.presetStart = { ...(root.settings.presetStart || {}), [PRESET.id]: PRESET.startTime }; };
+  if ((root.settings.presetsDone || []).includes(PRESET.id)) {
+    if (PRESET.startTime == null || doc.date == null || (root.settings.presetStart || {})[PRESET.id] === PRESET.startTime) return;
+    const t = Object.values(root.trips).find(x => x.trip && x.trip.name === PRESET.name && Trip.findDay(x, doc.date));
+    mutate(() => { if (t) Trip.updateDay(t, doc.date, { startTime: PRESET.startTime }); rememberStart(); }, t ? `出发时间改成 ${hm(PRESET.startTime)}，重排好了` : '');
+    return;
+  }
+  if (listening || pendingDraft) return;
   const days = doc.date ? [doc.date] : [];
   if (!mutate(() => { Trips.newTrip(root, { region: PRESET.region || 'hk', name: PRESET.name, days }); }, `内置好了「${PRESET.name}」`)) return;
   tab = 'trip';
@@ -1839,7 +1846,7 @@ async function applyPreset() {
     if (!pendingDraft) throw new Error('计划没读出来');
     await commitDraft();
     if (pendingDraft) throw new Error('计划没确认上');
-    mutate(() => { root.settings.presetsDone = [...(root.settings.presetsDone || []), PRESET.id]; });
+    mutate(() => { if (PRESET.startTime != null && doc.date) Trip.updateDay(state, doc.date, { startTime: PRESET.startTime }); root.settings.presetsDone = [...(root.settings.presetsDone || []), PRESET.id]; rememberStart(); });
   } catch (e) { alert('内置的计划没装好：' + e.message + '。去「说话」页点「粘贴清单」自己贴一次也行'); }
 }
 
