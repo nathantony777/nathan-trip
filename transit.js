@@ -17,7 +17,7 @@ export const TRANSIT_DEFAULTS = {
 };
 
 // 直线距离的正本在 geo.js（旅游版加的，一个公式只存一处）；这里转出去，老的引用不用改
-import { haversineM } from './geo.js';
+import { haversineM, taxiMin } from './geo.js';
 export { haversineM };
 
 export function parseHM(s) {
@@ -205,6 +205,24 @@ export function makeTransit(data, opts = {}) {
     return best;
   }
 
+  // 一段路的几种走法（0926，给界面列「最优 + 备选」）：每条 { mode, min, text }，按分钟从少到多排。
+  // 口岸那头：巴士（describe 那句）+ 打车；城里：港铁 + 步行（45 分钟以内才列）+ 打车。打车是估的（geo.js taxiMin），文字带「估」。
+  function taxiOpt(a, b) { const m = taxiMin(haversineM(a, b)); return { mode: 'taxi', min: m, text: `打车约 ${Math.round(m)} 分钟（估）` }; }
+  function options(a, b, t) {
+    const out = [];
+    if (port && isPort(a) !== isPort(b)) {
+      const d = describe(a, b, t);
+      if (isFinite(d.min)) out.push({ mode: 'bus', min: d.min, text: d.text });
+      out.push(taxiOpt(a, b));
+    } else {
+      const w = walk(a, b), m = mtrBest(a, b);
+      if (isFinite(m.min)) out.push({ mode: 'mtr', min: m.min, text: mtrText(m) });
+      if (w <= 45 || !isFinite(m.min)) out.push({ mode: 'walk', min: w, text: `步行约 ${Math.max(1, Math.round(w))} 分钟` });
+      if (haversineM(a, b) >= 300) out.push(taxiOpt(a, b));   // 300 米以内打车没意义
+    }
+    return out.sort((x, y) => x.min - y.min);
+  }
+
   function leg(a, b, t) {
     if (port && isPort(a) && !isPort(b)) return bestFromPort(b, t).min;
     if (port && isPort(b) && !isPort(a)) return bestToPort(a, t).min;
@@ -215,11 +233,11 @@ export function makeTransit(data, opts = {}) {
   function describe(a, b, t) {
     if (port && isPort(a) && !isPort(b)) {
       const r = bestFromPort(b, t);
-      return isFinite(r.min) ? { min: r.min, text: r.o.how(r.w) + '，再' + describeLocal(r.o.x, b).text } : { min: Infinity, text: '这个时间没有车' };
+      return isFinite(r.min) ? { min: r.min, text: r.o.how(r.w) + '，再' + describeLocal(r.o.x, b).text, mode: 'bus' } : { min: Infinity, text: '这个时间没有车' };
     }
     if (port && isPort(b) && !isPort(a)) {
       const r = bestToPort(a, t);
-      return isFinite(r.min) ? { min: r.min, text: describeLocal(a, r.o.x).text + '，' + r.o.how(r.w) } : { min: Infinity, text: '这个时间已经没有回口岸的车' };
+      return isFinite(r.min) ? { min: r.min, text: describeLocal(a, r.o.x).text + '，' + r.o.how(r.w), mode: 'bus' } : { min: Infinity, text: '这个时间已经没有回口岸的车' };
     }
     return describeLocal(a, b);
   }
@@ -261,6 +279,7 @@ export function makeTransit(data, opts = {}) {
       };
     },
     describe,
+    options,
     walk,
   };
 }

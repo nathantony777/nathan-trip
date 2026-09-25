@@ -18,6 +18,10 @@ export const NEAR_M = 600;
 
 // 没查到路程时的估法：走路 和 「10 分钟等车换乘 + 公交约 20 公里/小时」取快的那个。
 // 两条线在约 650 米处交叉，所以近的按走、远的按公交，中间没有跳变。
+// 打车估算（0926 加，给「最优 + 备选」列的打车那条）：等车 5 分钟 + 路上按 24 公里/小时（市区含红灯）、绕路 1.4。只是估的，界面要标「估」。
+export const TAXI = { wait: 5, mPerMin: 400, detour: 1.4 };
+export function taxiMin(meters) { return TAXI.wait + meters * TAXI.detour / TAXI.mPerMin; }
+
 export function estimateMin(meters) {
   return Math.min(walkMin(meters), 10 + meters * 1.4 / 350);
 }

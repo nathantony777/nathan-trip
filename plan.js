@@ -9,7 +9,8 @@ import { openOn, dowOf, HK_PH_2026 } from './hours.js';
 import { planRoute, hm } from './engine.js';
 import * as Trip from './trip.js';
 import { placeWindow } from './days.js';
-import { mapLinks as makeMapLinks, coordsFromText as mapCoords, walkFromLeg } from './maplinks.js';
+import { mapLinks as makeMapLinks, coordsFromText as mapCoords, walkFromLeg, navLinks } from './maplinks.js';
+import { haversineM, walkMin, taxiMin } from './geo.js';
 
 // 地方、起终点、备份的正本挪到了 trip.js（旅游版）；这里转出去，老的引用不用改
 export { addPlace, updatePlace, removePlace, resolvePoint, END_OPTIONS, exportText, importBackup } from './trip.js';
@@ -236,11 +237,32 @@ export function makePlan(state, data, T, opts = {}) {
 
 // 排好的一天 → 界面要的样子。旅游版（tripPlan.js）也用它：路程怎么描述、地图按钮怎么给，由 opts 注进来
 //   opts.describe(a, b, t) → { min, text, mode }；opts.links(a, b, leg) → 地图按钮（leg.mode 决定步行还是公交）
+//   opts.options(a, b, t, leg) → 几种走法 [{ mode, min, text }]（不给 → T.options（香港港铁表）→ 都没有按直线估）；opts.nav(a, b, mode) → 按方式的导航链接
+// 没有港铁表的地区（大陆 / 国外）：公交 = 排程用的那段（取到的路程或估的）、步行（45 分钟以内）、打车（估）
+function genericOptions(a, b, leg) {
+  const m = haversineM(a, b), out = [];
+  if (leg && isFinite(leg.min) && leg.mode !== 'walk') out.push({ mode: leg.mode === 'est' ? 'transit' : (leg.mode || 'transit'), min: leg.min, text: leg.text });
+  const w = walkMin(m);
+  if (w <= 45 || !out.length) out.push({ mode: 'walk', min: w, text: `步行约 ${Math.max(1, Math.round(w))} 分钟` });
+  if (m >= 300) { const tx = taxiMin(m); out.push({ mode: 'taxi', min: tx, text: `打车约 ${Math.round(tx)} 分钟（估）` }); }
+  return out.sort((x, y) => x.min - y.min);
+}
 export function present(state, data, T, built, r, opts = {}) {
   const S = state.settings;
   const D = built.day || dayOf(state);
   const describe = opts.describe || ((a, b, t) => T.describe(a, b, t));
   const links = opts.links || mapLinks;
+  const nav = opts.nav || ((a, b, mode) => navLinks('hk', a, b, mode));
+  // 一段路 → 界面要的：那句话 + 地图按钮 + 几种走法（第一条是排程实际用的那种 = 最优；其余备选）
+  const legView = (a, b, leg, t) => {
+    let os = (opts.options ? opts.options(a, b, t, leg) : (T && T.options ? T.options(a, b, t) : null)) || genericOptions(a, b, leg);
+    os = os.map(o => ({ mode: o.mode, min: Math.round(o.min), text: o.text, best: false, nav: nav(a, b, o.mode) }));
+    const same = { walk: 'walk', mtr: 'mtr', bus: 'bus', transit: 'transit', est: 'transit' }[leg.mode] || null;
+    const bi = same ? os.findIndex(o => o.mode === same) : -1;
+    if (bi > 0) os.unshift(...os.splice(bi, 1));
+    if (os.length) os[0].best = true;
+    return { text: leg.text, min: leg.min, mode: leg.mode || null, links: links(a, b, leg), options: os };
+  };
   const storeData = new Map(data.stores.map(s => [s.id, s]));
   const prodBy = new Map(data.products.map(p => [p.product, p]));
   const dow = dowOf(D.date), isPH = HK_PH_2026.has(D.date);
@@ -284,7 +306,7 @@ export function present(state, data, T, built, r, opts = {}) {
     const leave = parts[parts.length - 1].end;
     stops.push({ arrive: v.arrive, leave, lat: v.site.lat, lng: v.site.lng,
       title: [...new Set(parts.map(p => p.name))].join(' + '),
-      leg: { text: leg.text, min: leg.min, mode: leg.mode || null, links: links(prev, v.site, leg) }, parts });
+      leg: legView(prev, v.site, leg, prevT), parts });
     prev = v.site; prevT = leave;
   }
   const back = describe(prev, built.end, prevT);
@@ -301,7 +323,7 @@ export function present(state, data, T, built, r, opts = {}) {
     ok: true, exact: r.exact, elapsedMs: r.elapsedMs, date: D.date, estimated,
     start: { ...built.start, time: D.startTime },
     end: { ...built.end, arrive: r.finish, deadline: D.deadline },
-    back: { text: back.text, min: back.min, mode: back.mode || null, links: links(prev, built.end, back) },
+    back: legView(prev, built.end, back, prevT),
     stops, dropped, preferredCost, warnings,
     skipped: built.skipped.map(s => ({ items: s.items.map(itemView), why: s.why, text: s.text })),
     heavyLast: r.heavyLast,

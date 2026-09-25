@@ -8,7 +8,7 @@ import { hm } from './engine.js';
 import { HK_PH_2026 } from './hours.js';
 import { makeMatrixTravel } from './geo.js';
 import { planDays } from './days.js';
-import { mapLinks, walkFromLeg } from './maplinks.js';
+import { mapLinks, walkFromLeg, navLinks } from './maplinks.js';
 import * as Trip from './trip.js';
 import { buildProblem, present } from './plan.js';
 
@@ -62,6 +62,8 @@ export function makeTrip(state, data, T, opts = {}) {
       const v = present(state, data, T, built, rd.result, {
         describe: region === 'hk' ? undefined : (a, b) => MT.describe(a, b),
         links: (a, b, leg) => mapLinks(region, a, b, { walk: walkFromLeg(leg) }),
+        options: region === 'hk' ? undefined : (a, b, t, leg) => null,   // 不是香港 → 没有港铁表，让 present 按直线估几种走法
+        nav: (a, b, mode) => navLinks(region, a, b, mode),
       });
       v.date = rd.date;
       v.placeIds = rd.placeIds || [];

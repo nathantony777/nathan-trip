@@ -54,6 +54,29 @@ export function mapLinks(region, a, b, opts = {}) {
   };
 }
 
+// 一段路按【指定方式】导航的链接（0926 Nathan：「推荐出行的最优解+备选…一点谷歌地图就可以自动转到对应的，我一点就可以开始导航」）。
+// mode：mtr / bus / transit → 公交；walk → 步行；taxi → 开车（打车按开车导航）。
+// 谷歌：https 通用链接 + dir_action=navigate（装了谷歌地图 app 直接进导航；没装开网页）。高德：app 的 t（0 开车 / 1 公交 / 2 步行）+ 网页版 mode。
+// 终点同 mapLinks：有地址给「店名 地址」，没地址给坐标；起点永远是坐标。
+export function navLinks(region, a, b, mode) {
+  const g = mode === 'walk' ? 'walking' : mode === 'taxi' ? 'driving' : 'transit';
+  const t = mode === 'walk' ? 2 : mode === 'taxi' ? 0 : 1;
+  const wm = mode === 'walk' ? 'walk' : mode === 'taxi' ? 'car' : 'bus';
+  const cn = region === 'cn';
+  const s = `${f6(a.lat)},${f6(a.lng)}`, coordD = `${f6(b.lat)},${f6(b.lng)}`;
+  const shortName = String(b.name || '').replace(/[（(][^）)]*[）)]/g, '').replace(/\s+/g, ' ').trim();
+  const destText = b.addr ? `${shortName} ${b.addr}`.trim() : '';
+  const d = destText ? enc(destText) : coordD;
+  const from = `${f6(a.lng)},${f6(a.lat)}${a.name ? ',' + enc(a.name) : ''}`;
+  const to = `${f6(b.lng)},${f6(b.lat)}${(destText || b.name) ? ',' + enc(destText || b.name) : ''}`;
+  return {
+    mode,
+    googleWeb: `https://www.google.com/maps/dir/?api=1&origin=${s}&destination=${d}&travelmode=${g}&dir_action=navigate`,
+    amap: `iosamap://path?sourceApplication=nathan-trip&slat=${f6(a.lat)}&slon=${f6(a.lng)}&sname=${enc(a.name)}&dlat=${f6(b.lat)}&dlon=${f6(b.lng)}&dname=${enc(destText || b.name)}&dev=${cn ? 0 : 1}&t=${t}`,
+    amapWeb: cn ? `https://uri.amap.com/navigation?from=${from}&to=${to}&mode=${wm}&src=nathan-trip` : `https://uri.amap.com/search?keyword=${destText ? enc(destText) : coordD}&src=nathan-trip`,
+  };
+}
+
 // ---------------- 从一段文字里读坐标 ----------------
 // 返回 { lat, lng, sys } | { error:'给人看的话' } | null（什么都没认出）
 

@@ -365,8 +365,18 @@ const useAmap = () => googleReachable === null ? region() === 'cn' : !googleReac
 function legHTML(leg, copyText) {
   const L = leg.links || {};
   const btns = [];
-  if (useAmap()) btns.push(`<button class="sm" data-act="openApp" data-app="${esc(L.amap)}" data-web="${esc(L.amapWeb || '')}">高德地图</button>`);
-  else btns.push(`<button class="sm" data-act="openApp" data-app="${esc(L.googleWeb || L.google)}" data-web="">谷歌地图</button>`);   // https 通用链接：装了谷歌地图直接开 app
+  // 0926 Nathan：「一个和一个目的地之间，给我推荐出行的最优解+备选，具体到出行方式和几分钟，一点谷歌地图就可以自动转到对应的，我一点就可以开始导航」
+  // → 每段路列几种走法（第一条是排程用的 = 最优，其余备选），每条一个「导航」：大陆网络开高德、其余开谷歌地图（https 通用链接 + 直接进导航）。
+  const os = leg.options || [];
+  const optRows = os.map(o => {
+    const N = o.nav || {};
+    const app = useAmap() ? N.amap : N.googleWeb, web = useAmap() ? (N.amapWeb || '') : '';
+    return `<div class="leg-opt${o.best ? ' best' : ''}"><span class="grow">${o.best ? '<b>最优</b>' : '<span class="muted">备选</span>'} ${esc(o.text)}</span><button class="sm${o.best ? ' primary' : ''}" data-act="openApp" data-app="${esc(app || '')}" data-web="${esc(web)}">导航</button></div>`;
+  }).join('');
+  if (!os.length) {   // 老的排程结果（没有 options）：还是一颗地图按钮
+    if (useAmap()) btns.push(`<button class="sm" data-act="openApp" data-app="${esc(L.amap)}" data-web="${esc(L.amapWeb || '')}">高德地图</button>`);
+    else btns.push(`<button class="sm" data-act="openApp" data-app="${esc(L.googleWeb || L.google)}" data-web="">谷歌地图</button>`);   // https 通用链接：装了谷歌地图直接开 app
+  }
   // 打车：按这一趟去哪（不按网络）。滴滴：大陆 + 香港；Uber：香港 + 国外。
   // ★ Uber 的链接能带目的地（坐标 + 名字），打开就是填好终点的下单页。
   // ★ 滴滴没有对外公开的「带目的地打开」链接（要企业合作才有），所以按钮是【先把目的地复制好，再开滴滴】，进去粘贴一下。别猜参数（猜错只会留一串报错）。
@@ -374,7 +384,8 @@ function legHTML(leg, copyText) {
   if (R !== 'abroad') btns.push(`<button class="sm" data-act="openApp" data-app="diditaxi://" data-web="" data-copy="${esc(L.copyText || copyText)}">滴滴</button>`);
   if (R !== 'cn' && L.uber) btns.push(`<button class="sm" data-act="openApp" data-app="${esc(L.uberWeb || L.uber)}" data-web="">Uber</button>`);   // https 通用链接：装了 Uber 直接开 app、终点填好
   btns.push(`<button class="quiet sm" data-act="copy" data-text="${esc(L.copyText || copyText)}">复制地址</button>`);
-  return `<div class="leg">${leg.mode === 'est' ? `<span class="flag">${esc(leg.text)}</span>` : esc(leg.text)}<div class="row">${btns.join('')}</div></div>`;
+  const head = os.length ? (leg.mode === 'est' ? '<span class="flag">路程是估的</span>' : '') : (leg.mode === 'est' ? `<span class="flag">${esc(leg.text)}</span>` : esc(leg.text));
+  return `<div class="leg">${head}${optRows}<div class="row">${btns.join('')}</div></div>`;
 }
 
 function itemRowToday(it, part) {
